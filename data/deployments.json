@@ -1,0 +1,85 @@
+{
+ "network": "hedera-testnet",
+ "chainId": 296,
+ "explorer": "https://hashscan.io/testnet",
+ "deployer": {
+  "evm": "0x2A7e11875115bc5A0d82f3357A0EE2fD032192F3",
+  "hedera": "0.0.10749369"
+ },
+ "audited_core": {
+  "TokenizedStrategy": {
+   "evm": "0xccC8Ee9a1A559Fa814a886A2303F03239678eC8e",
+   "hedera": "0.0.10757286",
+   "tx": "0x7e912c0be42ce0653a7d5a5adb6cc138a0e2e577048715040007bef11bc19d8a",
+   "source": "yearn/tokenized-strategy @ master, deployed VERBATIM",
+   "apiVersion": "3.1.0",
+   "audited": true,
+   "note": "Holds all ERC-4626 accounting, share maths, fees, access control, emergency path."
+  },
+  "MinimalFactory": {
+   "evm": "0xdb5A2cf26E6d0956330bF507441Aaa59D5aB742c",
+   "hedera": "0.0.10757284",
+   "audited": false,
+   "note": "20-line fee-config source; TokenizedStrategy only calls protocol_fee_config(). Returns (0, deployer)."
+  }
+ },
+ "custom": {
+  "HbarxLoopStrategy": {
+   "evm": "0xcA41b1679961Eb0C4644ab0004Fce2B805d062dB",
+   "hedera": "0.0.10757461",
+   "tx": "0xdbfea7a5fb597094ff6714e620579bc6eee833a7165151f6eab612e58b5f424c",
+   "status": "deployed; ERC-4626 interface verified working through delegatecall to the audited singleton",
+   "custom_lines": 155,
+   "runtime_bytes": 7937,
+   "audited": false,
+   "vault_symbol": "ysHBARX",
+   "apiVersion": "3.1.0",
+   "pending": "initApprovals() - blocked until the contract receives its first HTS token (association)"
+  }
+ },
+ "superseded": {
+  "HederaLoopVault_v1": {
+   "evm": "0x48bf2Ff0842D09FdFa4aC1A4E708Ad85dF214Db6",
+   "hedera": "0.0.10749402",
+   "note": "fully custom, 600 lines, unaudited"
+  },
+  "Prober": {
+   "evm": "0x100c27ff9c338E06cDbbaaAcecf66021AD72628d",
+   "hedera": "0.0.10749437"
+  }
+ },
+ "v2_custom_vault": {
+  "hedera": "0.0.10879010",
+  "evm": "0x6f66561eFF738A77a58df5005FC6e76a71788524",
+  "url": "https://hashscan.io/testnet/contract/0.0.10879010",
+  "name": "AlphaYields HBARX Loop Vault",
+  "symbol": "ayHBARX",
+  "share_decimals": 14,
+  "asset": "HBARX 0.0.2231533",
+  "core": "OpenZeppelin ERC4626 (library)",
+  "custom_lines": 330,
+  "deploy_tx": "0x37726121d515f4fe7d43f207e1724e5770a0f8afb6ff894d151e6cc84377dcd7",
+  "flows_demonstrated": {
+   "associate": "0x29a1d12e41ec77982277bbb6eec1f04a7ccde0bdb78f5086f8c004d4cb7005a1",
+   "deposit_hbarx": "0xc33c12c705706634636f646d04e1c179171d820063a257e42beec4b6b5acb293",
+   "deposit_hbar_native": "0xc3198cb227b6398cb0f12b1801227deedae2dd728465055ad7fc0f65bd5bb95a",
+   "withdraw": "0x60133a2e5bf314930f4774b9f291784caf23e93eda3948fb7ee03b8c3f08e890",
+   "redeem": "0xc0adc3c98cb5752b97431772c2294dcae0e54f780f22047c98bb9d10f08ca74f"
+  },
+  "security": {
+   "tests": 13,
+   "fuzz_runs": 768,
+   "all_passing": true,
+   "vulnerability_found_and_fixed": "OZ _decimalsOffset() defaults to 0, leaving the donation/inflation attack viable; overridden to 6",
+   "nav_pricing": "no price consulted when debt==0; lending oracle only when debt>0; reverts if oracle unavailable (never falls back to AMM)"
+  },
+  "mainnet_config": {
+   "oracle": "0x2e78BedD7175dEC675949f50a2604bC835A47a03",
+   "staking": "0.0.1412503 (Stader, rate 1.43471473)",
+   "hbarx": "0.0.834116",
+   "whbar": "0.0.1456986",
+   "hbarx_ltv_pct": 62.98,
+   "max_leverage": 2.7
+  }
+ }
+}

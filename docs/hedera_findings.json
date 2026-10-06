@@ -1,0 +1,45 @@
+{
+ "measured_at": "2026-09-27",
+ "network": "hedera-testnet (296)",
+ "findings": [
+  {
+   "id": "F2",
+   "title": "Contract-to-contract calls must use the EVM alias, not the long-zero address",
+   "detail": "Calling SaucerSwap pair 0.0.2661051 at long-zero 0x...289abb from a contract returns success with ZERO bytes of return data, so Solidity reverts on abi.decode. The same call at its EVM alias 0xb0d84d87b45b99ed1c5f04bc84a9b5eb310dee16 returns 96 bytes correctly. Direct JSON-RPC calls succeed at BOTH addresses, so this only appears once logic runs inside a contract.",
+   "impact": "Silent failure mode. Any Hedera integration must resolve EVM aliases via the mirror node before hardcoding addresses.",
+   "evidence": "Prober contract 0x100c27ff9c338E06cDbbaaAcecf66021AD72628d, probe(address) on both forms."
+  },
+  {
+   "id": "F5",
+   "title": "Hedera relay rejects forge's EIP-1559 fee fields",
+   "detail": "forge create without --legacy fails with 'Insufficient funds for transfer' even when the balance far exceeds gasLimit x gasPrice. Adding --legacy --gas-price <eth_gasPrice> deploys normally.",
+   "impact": "Deployment tooling note."
+  },
+  {
+   "id": "F6",
+   "title": "Contract bytecode fits comfortably",
+   "detail": "18,153 B deploy / 16,570 B runtime against the 24,576 limit; deployed for 4.63 HBAR at 114 tinybar/gas (4,062,576 gas).",
+   "impact": "Answers open question 5 in the prior research (bytecode size limit on Hedera)."
+  },
+  {
+   "id": "F7",
+   "title": "Contracts get unlimited HTS auto-association",
+   "detail": "The deployed vault shows max_automatic_token_associations = -1 (HIP-904), so the explicit associate() call is not needed and ~4.5 HBAR of association fees are avoided.",
+   "impact": "Simplifies the Hedera integration."
+  },
+  {
+   "id": "F9",
+   "title": "HTS approve() reverts during contract construction",
+   "detail": "Calling approve() on an HTS token inside a constructor reverts. The contract is not yet associated with the token, and HIP-904 auto-association fires only on first RECEIPT, not at deployment. Confirmed: the deployed strategy shows max_automatic_token_associations=-1 but 0 associated tokens.",
+   "impact": "Move all HTS approvals out of constructors into a post-deploy call, and send a dust amount of each token to the contract first to trigger association.",
+   "evidence": "Deploy with constructor approvals reverted (eth_estimateGas also reverted); identical contract without them estimated 2,072,657 gas and deployed successfully."
+  },
+  {
+   "id": "F10",
+   "title": "Yearn V3 TokenizedStrategy works on Hedera with HTS assets",
+   "detail": "The delegatecall singleton pattern functions correctly against an HTS token. Deployed verbatim (apiVersion 3.1.0) and the full ERC-4626 surface resolves through the strategy: name, symbol (ysHBARX), decimals 8 (read from the HTS facade inside delegatecall), asset, totalAssets, totalSupply, management, keeper, performanceFee 1000, profitMaxUnlockTime 864000.",
+   "impact": "The audited Yearn core is usable on Hedera. Reduces the custom, audit-requiring surface from ~600 lines to 155."
+  }
+ ],
+ "scope": "Hedera platform-level integration findings. Third-party protocol status is excluded by design \u2014 it is point-in-time and belongs with those teams."
+}

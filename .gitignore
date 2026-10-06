@@ -1,0 +1,19 @@
+# NEVER COMMIT KEYS
+*wallet*.json
+*.key
+.env
+.env.*
+secrets/
+
+# build artifacts
+out/
+out-*/
+cache/
+broadcast/
+
+# scratch
+*_err.txt
+*.log
+
+# NOTE: lib/ is intentionally NOT ignored — dependencies are git submodules,
+# tracked by commit pointer so builds are reproducible.
