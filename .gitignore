@@ -12,6 +12,7 @@ cache/
 broadcast/
 
 # scratch
+deployments/
 *_err.txt
 *.log
 

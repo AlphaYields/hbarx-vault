@@ -10,3 +10,7 @@ evm_version = "cancun"
 
 [profile.default.fuzz]
 runs = 256
+
+# The test suite's mock tokens and pools cut corners on purpose; lint the vault.
+[lint]
+ignore = ["test/AyHbarVault.t.sol"]

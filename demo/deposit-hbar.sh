@@ -19,4 +19,4 @@ TX=$(echo "$OUT" | awk '/^transactionHash/{print $2}')
 echo "$OUT" | awk '/^status/{print "  status:",$2,$3}'
 echo "  tx: $EXPLORER/transaction/$TX"
 sleep 3
-echo "  shares now: $(fmt14 "$(cast call $VAULT 'balanceOf(address)(uint256)' $ME --rpc-url $RPC | num)") ayHBARX"
+echo "  shares now: $(fmt14 "$(cast call $VAULT 'balanceOf(address)(uint256)' $ME --rpc-url $RPC | num)") ayHBAR"

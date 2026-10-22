@@ -17,9 +17,9 @@ sleep 4
 
 echo "depositing..."
 OUT=$(cast send $VAULT "deposit(uint256,address)" $AMT $ME \
-  --rpc-url $RPC --private-key $PRIVATE_KEY $TXFLAGS --gas-limit 3000000)
+  --rpc-url $RPC --private-key $PRIVATE_KEY $TXFLAGS --gas-limit 900000)
 TX=$(echo "$OUT" | awk '/^transactionHash/{print $2}')
 echo "$OUT" | awk '/^status/{print "  status:",$2,$3}'
 echo "  tx: $EXPLORER/transaction/$TX"
 sleep 3
-echo "  shares now: $(fmt14 "$(cast call $VAULT 'balanceOf(address)(uint256)' $ME --rpc-url $RPC | num)") ayHBARX"
+echo "  shares now: $(fmt14 "$(cast call $VAULT 'balanceOf(address)(uint256)' $ME --rpc-url $RPC | num)") ayHBAR"

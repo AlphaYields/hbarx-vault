@@ -1,149 +1,186 @@
-# HbarxLoopVault — custom ERC-4626 vault for HBAR/HBARX looping on Hedera
+# Deployment
 
-*Deployed and exercised on Hedera testnet (chain 296), 2026-10-05.*
+## Live on Hedera testnet
 
-**Vault: `0.0.10879010`** · https://hashscan.io/testnet/contract/0.0.10879010
+**Vault `0.0.11131621`** — [HashScan](https://hashscan.io/testnet/contract/0.0.11131621)
+`0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e`
 
----
-
-## What it does
-
-ERC-4626 vault whose asset is HBARX. It accepts **both HBAR and HBARX** as deposits —
-native HBAR is converted on the way in — and runs the HBARX-collateral / WHBAR-borrow
-leverage loop against Bonzo Lend, swapping on SaucerSwap.
-
-| Requirement | Status |
+| Setting | Value |
 |---|---|
-| ERC-4626 standard | yes — OpenZeppelin `ERC4626` inherited |
-| HBARX depositable | yes — demonstrated |
-| **HBAR depositable** | **yes — demonstrated** |
-| Looping strategy | implemented; not exercisable on testnet (no active lending market) |
-| Security verified | 13 tests, all passing, incl. 768 fuzz runs |
-| Testnet + mainnet | same bytecode, addresses are constructor arguments |
+| Share token | `ayHBAR`, 14 decimals |
+| Underlying asset | HBARX (`0.0.2231533`) |
+| Performance fee | 20% (2000 bps), high-water mark |
+| Management fee | 0% |
+| Withdrawal timelock | 86,400 s (1 day) |
+| Deposit cap | 87,874 HBARX (≈ 10,000 USD at deployment) |
+| Slippage limit | 1% operating, 5% contract ceiling |
+| Owner | `0x2A7e1187…` |
+| Guardian | `0x5C72f1Cf…` |
+| Curator | `0x49c8a1dC…` |
 
----
+## Verified on-chain
 
-## Demonstrated on testnet
+Every feature was exercised against the live deployment. `tx` links to HashScan.
 
-| Flow | Result | Transaction |
-|---|---|---|
-| Deploy | vault live | [`0x37726121…`](https://hashscan.io/testnet/transaction/0x37726121d515f4fe7d43f207e1724e5770a0f8afb6ff894d151e6cc84377dcd7) |
-| `associate()` | HBARX + WHBAR associated, pool approved | [`0x29a1d12e…`](https://hashscan.io/testnet/transaction/0x29a1d12e41ec77982277bbb6eec1f04a7ccde0bdb78f5086f8c004d4cb7005a1) |
-| **Deposit HBARX** 0.3 | 3.0e13 shares minted | [`0xc33c12c7…`](https://hashscan.io/testnet/transaction/0xc33c12c705706634636f646d04e1c179171d820063a257e42beec4b6b5acb293) |
-| **Deposit HBAR** 2.0 | wrapped → swapped → 0.1305 HBARX → shares | [`0xc3198cb2…`](https://hashscan.io/testnet/transaction/0xc3198cb227b6398cb0f12b1801227deedae2dd728465055ad7fc0f65bd5bb95a) |
-| **Withdraw** 0.1 HBARX | asset-denominated exit | [`0x60133a2e…`](https://hashscan.io/testnet/transaction/0x60133a2e5bf314930f4774b9f291784caf23e93eda3948fb7ee03b8c3f08e890) |
-| **Redeem** half of shares | share-denominated exit | [`0xc0adc3c9…`](https://hashscan.io/testnet/transaction/0xc0adc3c98cb5752b97431772c2294dcae0e54f780f22047c98bb9d10f08ca74f) |
-
-All confirmed `SUCCESS` on the mirror node. Vault is left funded: `totalAssets = 16,527,765`
-(0.165 HBARX), so liquidity is testable.
-
----
-
-## Security
-
-### How NAV is priced — the part that matters most
-
-Every earlier version valued WHBAR debt at the SaucerSwap mid-price. That is manipulable
-within a single block: move the pair, mint or burn shares against a false NAV. This version
-does not do that.
-
-```
-debt == 0   ->  NAV = idle + collateral.  No price is consulted at all.
-debt  > 0   ->  priced ONLY by the lending market's own oracle.
-                If that oracle cannot answer, totalAssets() REVERTS.
-```
-
-Three consequences worth stating plainly:
-
-- On testnet debt is always zero (borrowing is impossible there), so the vault is fully
-  functional **and** has no price dependency — there is no manipulation surface at all.
-- On mainnet the oracle is live — verified: HBARX `1.4298`, WHBAR `1.0` — and it is the same
-  oracle that decides liquidation, so NAV and liquidation can never disagree.
-- Reverting is deliberate. A vault that cannot price itself must not mint or burn shares.
-  It is not a lock-in: `deleverage()` reads balances only and never calls `totalAssets()`,
-  so the position can always be unwound back to zero debt.
-
-### A real vulnerability the tests caught
-
-OpenZeppelin's `_decimalsOffset()` defaults to **0**, which leaves the first-depositor /
-donation inflation attack viable. The test reproduced it: a 1-wei first deposit plus a
-500-token direct transfer rounded the next depositor's shares to **zero**.
-
-Overriding the offset to 6 fixes it — the attack now needs roughly 10⁶× more capital than it
-can extract. This is why the vault's share token has 14 decimals (8 asset + 6 offset).
-
-### Test results
-
-```
-VaultSecurityTest
-  [PASS] test_inflationAttackIsMitigated        donation attack cannot strip a victim
-  [PASS] test_noDebtNeedsNoOracle               no debt -> no price dependency
-  [PASS] test_debtWithDeadOracleReverts         fail-safe, never fail-open
-  [PASS] test_ammManipulationDoesNotMoveNav     violent reserve move leaves NAV untouched
-  [PASS] test_ownerCannotSweepUserFunds         owner cannot touch asset/aToken/debt
-  [PASS] test_strategyIsPermissioned            loop controls are not public
-  [PASS] test_pauseBlocksDepositsNotExits       users can always exit
-  [PASS] test_roundTripConservesValue           no value leak
-  [PASS] test_loopBoundsEnforced                loop count and slippage bounded
-  [PASS] test_withdrawPullsFromCollateral       unwinds collateral when idle is short
-
-VaultInvariantTest  (256 fuzz runs each)
-  [PASS] testFuzz_depositRedeemNeverProfits     nobody extracts more than they put in
-  [PASS] testFuzz_twoDepositorsFairShare        depositors cannot dilute each other
-  [PASS] testFuzz_navIdentityNoDebt             NAV == idle + collateral when debt is zero
-
-13 passed, 0 failed.
-```
-
-### Other protections
-
-| Attack | Mitigation |
+| Flow | Result |
 |---|---|
-| Sandwich on HBAR deposit or loop swaps | Caller-supplied `minOut`, computed from live reserves, verified by measured balance delta |
-| Owner rug | `sweep()` reverts on the asset, aToken and debt token — the owner can lever and unwind but cannot withdraw user funds |
-| Reentrancy | `nonReentrant` on every external state-changing entry point |
-| Emergency | Deposits pausable; **withdrawals are not** — exits can never be blocked |
-| Ownership mistakes | `Ownable2Step` — ownership transfer must be accepted |
+| Deploy | [`0x9afd5fb9…`](https://hashscan.io/testnet/transaction/0x9afd5fb9a1477cfe4766bf74580bc43782d059de7cd5313a4d407aa61b35afec) |
+| `associate()` | [`0x7cc91e14…`](https://hashscan.io/testnet/transaction/0x7cc91e143b99dac842e08aef3069b5db25687224b638f450cd9e046754911f47) — HTS tokens registered, pool allowances set |
+| Deposit HBARX | [`0xc6a463f7…`](https://hashscan.io/testnet/transaction/0xc6a463f7b4cf397a3d7d58b1264bd7bf5fa1eeea1143bb8990deeb630bc473e6) — 0.1 HBARX at price 1.00000000 |
+| Deposit native HBAR | [`0x750c15d2…`](https://hashscan.io/testnet/transaction/0x750c15d2cd278652eeb24d240bf3073506493d182f744ac400628c59fe6fd92c) — 1 HBAR converted and minted in one call |
+| Request withdrawal | [`0xe21d3c88…`](https://hashscan.io/testnet/transaction/0xe21d3c8856ecfd42e17a67d07121271bc330566b72110b0dbecad5857e78d6cc) — shares escrowed, `totalSupply` unchanged so they keep earning |
+| Redeem before maturity | rejected |
+| Cancel request | [`0x57bb1572…`](https://hashscan.io/testnet/transaction/0x57bb15728424c0506cff82209127252c6a863459e6d810665a1e559d772db485) — shares returned in full |
+| Redeem a matured request | [`0x7eb6770a…`](https://hashscan.io/testnet/transaction/0x7eb6770ae9e13ca81e772f92ce1ceab3f080591fc28377f0898f0261cfe5be0b) — 5,484,043 raw HBARX for 5.0e12 shares |
+| Withdraw a matured request | [`0x96f0561e…`](https://hashscan.io/testnet/transaction/0x96f0561e871f755a6c58495d61c5ce154e746f2b486e112ab2a85bd038a6cdcf) — paid 5,484,044 against 5,484,044 asked, exact to the unit |
+| Performance fee | [`0xb42b9a6f…`](https://hashscan.io/testnet/transaction/0xb42b9a6fe676dc18259dc6cf35c917171a6383137574a55724c751bbf5d9d52a) — 2,000,000 raw of yield, fee worth 399,998 (20.00%); share price 1.00000000 → 1.09680879, depositors kept the rest |
+| Guardian pause | [`0x9f5ed7c0…`](https://hashscan.io/testnet/transaction/0x9f5ed7c0152cb29a31e2dc50bc8d60e741c3075212ad2bb767d78d24e90bd3f7) — deposits, withdrawals and redemptions all halted; `maxDeposit` and `maxRedeem` report 0 |
+| Unwind while paused | [`0x9219f148…`](https://hashscan.io/testnet/transaction/0x9219f14891a27c017e465db6dcb4e039aa76efcdd4dadc83c216a9535c493ab1) — available to the guardian throughout |
+| Owner unpause | [`0x690ea0dc…`](https://hashscan.io/testnet/transaction/0x690ea0dc7ca8e5028bcee68cd95040956b46ba07f5e1b159455480d2497e26db) |
+| Guardian unpause | rejected — owner only |
+| Curator or guardian changing fees | rejected — owner only |
+| Curator changing the timelock | rejected — owner only |
+| Curator setting the deposit cap | [`0xb702e8ca…`](https://hashscan.io/testnet/transaction/0xb702e8ca0c381d471391011820e9fe5208ef68467c82a4a91984afbd182c90d2) — permitted |
+| An address with no role pausing, capping or sweeping | rejected |
+| `sweep` of the asset, collateral receipt, debt token or borrowed asset | rejected in all four cases |
+| Fee above 50%, management above 5%, timelock above 30 days, slippage above 5% | rejected in all four cases |
 
----
+## Re-running the checks
 
-## Testnet vs mainnet
+Every row above is reproducible against a live testnet deployment:
 
-The same bytecode runs on both. Every address is a constructor argument, and two of them
-differ by environment:
+```bash
+export OWNER_KEY=0x... GUARDIAN_KEY=0x... CURATOR_KEY=0x...
+CONFIRM=yes ./script/validate-testnet.sh
+```
 
-| | Testnet (deployed) | Mainnet |
-|---|---|---|
-| Oracle | `address(0)` — not required while debt is zero | `0x2e78BedD…` — live and verified |
-| Staking | `address(0)` — no Stader on testnet, so HBAR routes through the SaucerSwap pair | Stader `0.0.1412503`, rate `1.43471473` — HBAR mints HBARX at protocol rate, zero slippage |
-| HBARX | `0.0.2231533` | `0.0.834116` |
-| WHBAR | `0.0.15058` | `0.0.1456986` |
+It prints a PASS/FAIL line per check and exits non-zero if any fail. The run temporarily
+shortens the withdrawal timelock so a matured claim can be demonstrated in one pass, and
+restores it on the way out. The owner account needs about 8 HBAR of gas and 0.15 HBARX; the
+guardian and curator accounts about 1 HBAR each. Testnet only.
 
-Both are settable afterwards by the owner (`setOracle`, `setStaking`), so a mainnet deployment
-can start conservatively and enable staking once confirmed.
+## Confirming the deployed code
 
-**Mainnet leverage parameters:** HBARX LTV 62.98% / LT 68.28% → ceiling 2.70×, not the 3.33×
-testnet suggests.
+```bash
+NETWORK=testnet ./script/verify-bytecode.sh
+```
 
----
-
-## Status of the loop
-
-The loop is implemented (`leverUp`, `deleverage`) and bounded, but **has not executed on
-testnet**. Opening a leveraged position needs an active lending market with live price feeds,
-and the testnet lending environment does not currently provide one.
-
-On mainnet the lending market is funded and in production use, so the supply and borrow
-mechanics are available there. Our specific sequence has not run yet, and we intend to
-exercise it against a mock lending pool before any mainnet deployment — that is the
-recommended next step and it does not depend on external availability.
-
----
-
-## Files
+It compiles this repository and compares the result byte for byte against the runtime code on
+chain, excluding only the immutable slots that hold the constructor's addresses and the
+trailing metadata hash, which covers the import paths used at compile time.
 
 ```
-src/HbarxLoopVault.sol        the vault — 330 custom lines
-test/VaultSecurity.t.sol      13 tests incl. fuzz
-data/                         addresses, deployment records
+address        0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e
+runtime length 21618 bytes
+immutable bytes 687 (constructor addresses)
+MATCH — the deployed code is this source
 ```
+
+## Operating the vault
+
+Every call below is a plain `cast send`. Hedera needs legacy transactions, and the gas limit
+should sit near the estimate — see *Gas notes*.
+
+```bash
+export RPC=https://testnet.hashio.io/api      # mainnet: https://mainnet.hashio.io/api
+export VAULT=0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e
+export TXFLAGS="--legacy --gas-price 1140000000000 --gas-limit 900000"
+send(){ cast send $VAULT "$@" --rpc-url $RPC --private-key $PRIVATE_KEY $TXFLAGS; }
+```
+
+**Owner**
+
+| Action | Command |
+|---|---|
+| Set fees and recipient | `send "setFees(uint16,uint16,address)" 2000 0 $RECIPIENT` |
+| Set guardian | `send "setGuardian(address)" $GUARDIAN` |
+| Set curator | `send "setCurator(address)" $CURATOR` |
+| Set withdrawal timelock | `send "setWithdrawTimelock(uint64)" 86400` |
+| Set slippage limit | `send "setMaxSlippageBps(uint16)" 100` |
+| Set price oracle | `send "setOracle(address)" $ORACLE` |
+| Set staking contract | `send "setStaking(address)" $STADER` |
+| Unpause | `send "unpause()"` |
+| Recover a stray token | `send "sweep(address,address,uint256)" $TOKEN $TO $AMOUNT` |
+| Begin ownership transfer | `send "transferOwnership(address)" $NEW_OWNER` |
+| Accept ownership (from the new owner) | `send "acceptOwnership()"` |
+
+Fees are capped in the contract at 50% performance and 5% management; the timelock at 30 days
+and the slippage limit at 5%. `sweep` rejects the vault's asset, its collateral receipt, its
+debt token and the borrowed asset.
+
+**Guardian**
+
+| Action | Command |
+|---|---|
+| Pause (halts deposits and withdrawals) | `send "pause()"` |
+| Unwind leverage | `send "deleverage(uint8,uint256,uint16)" 3 $WITHDRAW_PER_LOOP 100` |
+
+`deleverage` stays available while paused, so a position can always be brought back to safety.
+
+**Curator**
+
+| Action | Command |
+|---|---|
+| Set the deposit cap | `send "setDepositCap(uint256)" $CAP` |
+| Supply idle assets as collateral | `send "supplyToPool(uint256)" $AMOUNT` |
+| Withdraw collateral to idle | `send "withdrawFromPool(uint256)" $AMOUNT` |
+| Enable the collateral reserve | `send "enableCollateral()"` |
+| Build leverage | `send "leverUp(uint8,uint256,uint16)" 3 $BORROW_PER_LOOP 100` |
+
+**Anyone**
+
+| Action | Command |
+|---|---|
+| Register HTS tokens and lending allowances | `send "associate()"` |
+| Accrue fees up to now | `send "accrueFees()"` |
+
+**Reading state**
+
+```bash
+cast call $VAULT "totalAssets()(uint256)"            --rpc-url $RPC
+cast call $VAULT "convertToAssets(uint256)(uint256)" 100000000000000 --rpc-url $RPC  # share price
+cast call $VAULT "performanceFee()(uint16)"          --rpc-url $RPC
+cast call $VAULT "withdrawTimelock()(uint64)"        --rpc-url $RPC
+cast call $VAULT "depositCap()(uint256)"             --rpc-url $RPC
+cast call $VAULT "paused()(bool)"                    --rpc-url $RPC
+cast call $VAULT "owner()(address)"                  --rpc-url $RPC
+cast call $VAULT "guardian()(address)"               --rpc-url $RPC
+cast call $VAULT "curator()(address)"                --rpc-url $RPC
+cast call $VAULT "withdrawableAt(address)(uint256,uint64)" $USER --rpc-url $RPC
+```
+
+## Mainnet checklist
+
+1. **Fund the deployer.** Roughly 15 HBAR covers deployment (≈5.7) and `associate()` (≈3.3)
+   with headroom.
+2. **Deploy**, then **configure** with the real guardian and curator addresses.
+3. **Recompute the deposit cap** — `configure.sh` prices it at run time, but confirm the HBARX
+   rate it uses is current.
+4. **Set the oracle.** Mainnet carries a live price oracle
+   (`0x2e78BedD7175dEC675949f50a2604bC835A47a03`); it is required before any leverage is taken.
+5. **Set the staking contract** (`0.0.1412503`) so HBAR deposits stake at the protocol rate
+   rather than routing through a swap.
+6. **Verify roles** read back correctly before announcing the vault.
+7. **Transfer ownership** to its final holder if the deployer is not it. Ownership moves in two
+   steps: `transferOwnership` then `acceptOwnership` from the new address.
+
+## Gas notes
+
+Hedera's JSON-RPC relay reserves `gasLimit × gasPrice` up front, so an oversized gas limit can
+be rejected for insufficient funds even when the transaction would cost little. Estimate first
+and set the limit close to the estimate. Typical costs at 114 tinybar/gas:
+
+| Operation | Gas | Cost |
+|---|---:|---:|
+| Deploy | 4,995,522 | ≈5.7 HBAR |
+| `associate()` | 2,858,664 | ≈3.3 HBAR |
+| Deposit HBARX | 165,161 | ≈0.19 HBAR |
+| Deposit HBAR (wrap + swap) | 273,214 | ≈0.31 HBAR |
+| Request withdrawal | 124,446 | ≈0.14 HBAR |
+| Redeem | 168,737 | ≈0.19 HBAR |
+| `accrueFees()` | 111,166 | ≈0.13 HBAR |
+
+Measured on the deployment above; a deploy needs its limit set near 5.6M and `associate()`
+near 3M, both of which the deploy script sets.
+
+All transactions are legacy-type; the relay does not accept EIP-1559 fee fields.

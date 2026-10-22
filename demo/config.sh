@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Hedera testnet configuration for the HbarxLoopVault demo.
+# Hedera testnet configuration for the ayHBAR vault demo.
 # Everything below is public; the key is supplied via PRIVATE_KEY in the environment.
 export RPC=${RPC:-https://testnet.hashio.io/api}
-export VAULT=0x6f66561eFF738A77a58df5005FC6e76a71788524   # 0.0.10879010
+export VAULT=0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e   # 0.0.11131621
 export HBARX=0x0000000000000000000000000000000000220cED   # 0.0.2231533
 export EXPLORER=https://hashscan.io/testnet
 

@@ -1,85 +1,43 @@
 {
  "network": "hedera-testnet",
  "chainId": 296,
- "explorer": "https://hashscan.io/testnet",
- "deployer": {
-  "evm": "0x2A7e11875115bc5A0d82f3357A0EE2fD032192F3",
-  "hedera": "0.0.10749369"
+ "vault": {
+  "hedera": "0.0.11131621",
+  "evm": "0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e",
+  "url": "https://hashscan.io/testnet/contract/0.0.11131621",
+  "symbol": "ayHBAR",
+  "decimals": 14,
+  "asset": "HBARX 0.0.2231533"
  },
- "audited_core": {
-  "TokenizedStrategy": {
-   "evm": "0xccC8Ee9a1A559Fa814a886A2303F03239678eC8e",
-   "hedera": "0.0.10757286",
-   "tx": "0x7e912c0be42ce0653a7d5a5adb6cc138a0e2e577048715040007bef11bc19d8a",
-   "source": "yearn/tokenized-strategy @ master, deployed VERBATIM",
-   "apiVersion": "3.1.0",
-   "audited": true,
-   "note": "Holds all ERC-4626 accounting, share maths, fees, access control, emergency path."
-  },
-  "MinimalFactory": {
-   "evm": "0xdb5A2cf26E6d0956330bF507441Aaa59D5aB742c",
-   "hedera": "0.0.10757284",
-   "audited": false,
-   "note": "20-line fee-config source; TokenizedStrategy only calls protocol_fee_config(). Returns (0, deployer)."
-  }
+ "roles": {
+  "owner": "0x2A7e11875115bc5A0d82f3357A0EE2fD032192F3",
+  "guardian": "0x5C72f1Cf6d87e0017b7574Fc3d41629f5DaE8687",
+  "curator": "0x49c8a1dC0b78348a139eF4b49E4d305126ffF2A1"
  },
- "custom": {
-  "HbarxLoopStrategy": {
-   "evm": "0xcA41b1679961Eb0C4644ab0004Fce2B805d062dB",
-   "hedera": "0.0.10757461",
-   "tx": "0xdbfea7a5fb597094ff6714e620579bc6eee833a7165151f6eab612e58b5f424c",
-   "status": "deployed; ERC-4626 interface verified working through delegatecall to the audited singleton",
-   "custom_lines": 155,
-   "runtime_bytes": 7937,
-   "audited": false,
-   "vault_symbol": "ysHBARX",
-   "apiVersion": "3.1.0",
-   "pending": "initApprovals() - blocked until the contract receives its first HTS token (association)"
-  }
+ "config": {
+  "performanceFeeBps": 2000,
+  "managementFeeBps": 0,
+  "withdrawTimelockSeconds": 86400,
+  "depositCapRaw": "8787427657314",
+  "maxSlippageBps": 100
  },
- "superseded": {
-  "HederaLoopVault_v1": {
-   "evm": "0x48bf2Ff0842D09FdFa4aC1A4E708Ad85dF214Db6",
-   "hedera": "0.0.10749402",
-   "note": "fully custom, 600 lines, unaudited"
-  },
-  "Prober": {
-   "evm": "0x100c27ff9c338E06cDbbaaAcecf66021AD72628d",
-   "hedera": "0.0.10749437"
-  }
+ "verified_on_chain": {
+  "deploy": "0x9afd5fb9a1477cfe4766bf74580bc43782d059de7cd5313a4d407aa61b35afec",
+  "associate": "0x7cc91e143b99dac842e08aef3069b5db25687224b638f450cd9e046754911f47",
+  "deposit_hbarx": "0xc6a463f7b4cf397a3d7d58b1264bd7bf5fa1eeea1143bb8990deeb630bc473e6",
+  "deposit_hbar": "0x750c15d2cd278652eeb24d240bf3073506493d182f744ac400628c59fe6fd92c",
+  "request_withdraw": "0xe21d3c8856ecfd42e17a67d07121271bc330566b72110b0dbecad5857e78d6cc",
+  "cancel_request": "0x57bb15728424c0506cff82209127252c6a863459e6d810665a1e559d772db485",
+  "redeem_matured": "0x7eb6770ae9e13ca81e772f92ce1ceab3f080591fc28377f0898f0261cfe5be0b",
+  "withdraw_matured": "0x96f0561e871f755a6c58495d61c5ce154e746f2b486e112ab2a85bd038a6cdcf",
+  "accrue_fees": "0xb42b9a6fe676dc18259dc6cf35c917171a6383137574a55724c751bbf5d9d52a",
+  "pause": "0x9f5ed7c0152cb29a31e2dc50bc8d60e741c3075212ad2bb767d78d24e90bd3f7",
+  "deleverage_while_paused": "0x9219f14891a27c017e465db6dcb4e039aa76efcdd4dadc83c216a9535c493ab1",
+  "unpause": "0x690ea0dc7ca8e5028bcee68cd95040956b46ba07f5e1b159455480d2497e26db",
+  "curator_set_cap": "0xb702e8ca0c381d471391011820e9fe5208ef68467c82a4a91984afbd182c90d2"
  },
- "v2_custom_vault": {
-  "hedera": "0.0.10879010",
-  "evm": "0x6f66561eFF738A77a58df5005FC6e76a71788524",
-  "url": "https://hashscan.io/testnet/contract/0.0.10879010",
-  "name": "AlphaYields HBARX Loop Vault",
-  "symbol": "ayHBARX",
-  "share_decimals": 14,
-  "asset": "HBARX 0.0.2231533",
-  "core": "OpenZeppelin ERC4626 (library)",
-  "custom_lines": 330,
-  "deploy_tx": "0x37726121d515f4fe7d43f207e1724e5770a0f8afb6ff894d151e6cc84377dcd7",
-  "flows_demonstrated": {
-   "associate": "0x29a1d12e41ec77982277bbb6eec1f04a7ccde0bdb78f5086f8c004d4cb7005a1",
-   "deposit_hbarx": "0xc33c12c705706634636f646d04e1c179171d820063a257e42beec4b6b5acb293",
-   "deposit_hbar_native": "0xc3198cb227b6398cb0f12b1801227deedae2dd728465055ad7fc0f65bd5bb95a",
-   "withdraw": "0x60133a2e5bf314930f4774b9f291784caf23e93eda3948fb7ee03b8c3f08e890",
-   "redeem": "0xc0adc3c98cb5752b97431772c2294dcae0e54f780f22047c98bb9d10f08ca74f"
-  },
-  "security": {
-   "tests": 13,
-   "fuzz_runs": 768,
-   "all_passing": true,
-   "vulnerability_found_and_fixed": "OZ _decimalsOffset() defaults to 0, leaving the donation/inflation attack viable; overridden to 6",
-   "nav_pricing": "no price consulted when debt==0; lending oracle only when debt>0; reverts if oracle unavailable (never falls back to AMM)"
-  },
-  "mainnet_config": {
-   "oracle": "0x2e78BedD7175dEC675949f50a2604bC835A47a03",
-   "staking": "0.0.1412503 (Stader, rate 1.43471473)",
-   "hbarx": "0.0.834116",
-   "whbar": "0.0.1456986",
-   "hbarx_ltv_pct": 62.98,
-   "max_leverage": 2.7
-  }
+ "tests": {
+  "count": 35,
+  "passing": 35
  }
 }
