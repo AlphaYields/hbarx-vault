@@ -79,7 +79,8 @@ MATCH — the deployed code is this source
 ## Operating the vault
 
 Every call below is a plain `cast send`. Hedera needs legacy transactions, and the gas limit
-should sit near the estimate — see *Gas notes*.
+should sit near the estimate — see *Gas notes*. On macOS, run `setopt interactive_comments`
+first if you paste shell comments into an interactive zsh.
 
 ```bash
 export RPC=https://testnet.hashio.io/api      # mainnet: https://mainnet.hashio.io/api
@@ -138,7 +139,7 @@ debt token and the borrowed asset.
 
 ```bash
 cast call $VAULT "totalAssets()(uint256)"            --rpc-url $RPC
-cast call $VAULT "convertToAssets(uint256)(uint256)" 100000000000000 --rpc-url $RPC  # share price
+cast call $VAULT "pricePerShare()(uint256)"          --rpc-url $RPC
 cast call $VAULT "performanceFee()(uint16)"          --rpc-url $RPC
 cast call $VAULT "withdrawTimelock()(uint64)"        --rpc-url $RPC
 cast call $VAULT "depositCap()(uint256)"             --rpc-url $RPC
@@ -158,10 +159,21 @@ cast call $VAULT "withdrawableAt(address)(uint256,uint64)" $USER --rpc-url $RPC
    rate it uses is current.
 4. **Confirm the oracle and staking contract.** Both come from `addresses.json` and are set at
    deployment on mainnet — the live price oracle (`0x2e78BedD7175dEC675949f50a2604bC835A47a03`),
-   required before any leverage is taken, and Stader (`0.0.1412503`), which lets HBAR deposits
-   stake at the protocol rate instead of routing through a swap. Read both back with
-   `oracle()` and `staking()`; `setOracle` and `setStaking` can change them later.
-6. **Verify roles** read back correctly before announcing the vault.
+   required before any leverage is taken, and Stader (`0.0.1412503`). Read both back with
+   `oracle()` and `staking()`.
+5. **Pick the HBAR conversion route.** With `staking()` set, `depositHBAR` stakes at the
+   protocol rate; with it set to the zero address, it wraps to WHBAR and swaps on the
+   SaucerSwap HBARX/WHBAR pool under the caller's `minAssetsOut`. `setStaking(address)` switches
+   between them at any time, so compare both quotes and use whichever is available and better
+   priced — the pool is not always the worse of the two:
+
+   ```bash
+   cast call $VAULT "quoteWhbarToAsset(uint256)(uint256)" 10000000000 --rpc-url $RPC
+   cast call 0x0000000000000000000000000000000000158d97 "getExchangeRate()(uint256)" --rpc-url $RPC
+   ```
+6. **Verify roles** read back correctly before announcing the vault, and confirm the guardian
+   and curator accounts exist on mainnet and hold HBAR — an address stored in the contract
+   cannot sign anything until its account is funded.
 7. **Transfer ownership** to its final holder if the deployer is not it. Ownership moves in two
    steps: `transferOwnership` then `acceptOwnership` from the new address.
 
@@ -177,6 +189,7 @@ and set the limit close to the estimate. Typical costs at 114 tinybar/gas:
 | `associate()` | 2,858,664 | ≈3.3 HBAR |
 | Deposit HBARX | 165,161 | ≈0.19 HBAR |
 | Deposit HBAR (wrap + swap) | 273,214 | ≈0.31 HBAR |
+| Deposit HBAR (stake route) | ~800,000+ | ≈0.90 HBAR |
 | Request withdrawal | 124,446 | ≈0.14 HBAR |
 | Redeem | 168,737 | ≈0.19 HBAR |
 | `accrueFees()` | 111,166 | ≈0.13 HBAR |

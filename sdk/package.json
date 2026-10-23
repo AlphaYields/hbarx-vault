@@ -1,0 +1,25 @@
+{
+  "name": "@alphayields/ayhbar-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed client and runnable scripts for the ayHBAR vault on Hedera",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "status": "tsx scripts/status.ts",
+    "deposit-hbar": "tsx scripts/deposit-hbar.ts",
+    "deposit-hbarx": "tsx scripts/deposit-hbarx.ts",
+    "request-withdraw": "tsx scripts/request-withdraw.ts",
+    "cancel-request": "tsx scripts/cancel-request.ts",
+    "claim": "tsx scripts/claim.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ethers": "^6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

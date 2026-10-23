@@ -51,7 +51,8 @@ vault.cancelWithdrawRequest();                             // change your mind
 `withdraw` takes the asset amount you want; `redeem` takes the number of shares to burn. Both
 pay out in HBARX. Queued shares stay invested and keep earning right up until they are burned.
 
-Ready-to-run scripts for every flow are in [`demo/`](demo/).
+Ready-to-run scripts for every flow are in [`demo/`](demo/) as shell, and in
+[`sdk/`](sdk/) as a typed TypeScript client for front ends.
 
 ## Fees
 
@@ -114,6 +115,21 @@ A few platform behaviours shape the implementation:
   address. Every address in [`addresses.json`](addresses.json) is recorded in the form the
   vault needs.
 - Transactions are legacy-type; the JSON-RPC relay does not accept EIP-1559 fee fields.
+
+## TypeScript SDK
+
+[`sdk/`](sdk/) holds a typed ethers v6 client plus runnable scripts — deposit in
+either asset, the withdrawal queue, and a read-only view that needs no key:
+
+```bash
+cd sdk && npm install
+npm run status
+PRIVATE_KEY=0x... npm run deposit-hbar -- 100
+```
+
+The client works unchanged in a browser, and [`sdk/README.md`](sdk/README.md)
+documents the Hedera behaviours a front end has to respect — legacy
+transactions, fixed gas limits, token association, and the two-step withdrawal.
 
 ## Build and test
 
