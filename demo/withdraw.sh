@@ -15,7 +15,7 @@ if [ "$MAXW" -lt "$AMT" ]; then
   if [ "${S:-0}" = "0" ]; then
     echo "  no request queued — run ./request-withdraw.sh first"
   elif [ "$MAXW" = "0" ]; then
-    echo "  $(fmt14 "$S") ayHBAR queued, claimable at $(python3 -c "import datetime,sys;print(datetime.datetime.fromtimestamp(int(sys.argv[1]),datetime.UTC).strftime('%Y-%m-%d %H:%M UTC'))" "$U")"
+    echo "  $(fmt14 "$S") ayHBAR queued, claimable at $(python3 -c "import datetime,sys;print(datetime.datetime.fromtimestamp(int(sys.argv[1]),datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))" "$U")"
   fi
   exit 1
 fi

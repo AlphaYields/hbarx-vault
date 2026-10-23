@@ -156,10 +156,11 @@ cast call $VAULT "withdrawableAt(address)(uint256,uint64)" $USER --rpc-url $RPC
 2. **Deploy**, then **configure** with the real guardian and curator addresses.
 3. **Recompute the deposit cap** — `configure.sh` prices it at run time, but confirm the HBARX
    rate it uses is current.
-4. **Set the oracle.** Mainnet carries a live price oracle
-   (`0x2e78BedD7175dEC675949f50a2604bC835A47a03`); it is required before any leverage is taken.
-5. **Set the staking contract** (`0.0.1412503`) so HBAR deposits stake at the protocol rate
-   rather than routing through a swap.
+4. **Confirm the oracle and staking contract.** Both come from `addresses.json` and are set at
+   deployment on mainnet — the live price oracle (`0x2e78BedD7175dEC675949f50a2604bC835A47a03`),
+   required before any leverage is taken, and Stader (`0.0.1412503`), which lets HBAR deposits
+   stake at the protocol rate instead of routing through a swap. Read both back with
+   `oracle()` and `staking()`; `setOracle` and `setStaking` can change them later.
 6. **Verify roles** read back correctly before announcing the vault.
 7. **Transfer ownership** to its final holder if the deployer is not it. Ownership moves in two
    steps: `transferOwnership` then `acceptOwnership` from the new address.

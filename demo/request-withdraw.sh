@@ -16,4 +16,4 @@ echo "  tx: $EXPLORER/transaction/$(echo "$OUT"|awk '/^transactionHash/{print $2
 sleep 3
 read -r S U <<<"$(cast call $VAULT 'withdrawableAt(address)(uint256,uint64)' $ME --rpc-url $RPC | tr '\n' ' ' | sed 's/\[[^]]*\]//g')"
 echo "  queued  : $(fmt14 "$S") ayHBAR"
-echo "  claimable at: $(python3 -c "import datetime,sys;print(datetime.datetime.fromtimestamp(int(sys.argv[1]),datetime.UTC).strftime('%Y-%m-%d %H:%M UTC'))" "$U")"
+echo "  claimable at: $(python3 -c "import datetime,sys;print(datetime.datetime.fromtimestamp(int(sys.argv[1]),datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))" "$U")"
