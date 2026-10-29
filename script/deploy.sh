@@ -29,8 +29,34 @@ if [ -n "${VAULT:-}" ]; then
   echo "==> using the existing vault $VAULT (skipping deployment)"
 else
 
+# The vault links against VaultMath, which holds the pricing and routing
+# arithmetic. Deploying it separately is what keeps the vault inside the 24 KB
+# contract-code limit, so it goes first and its address is linked in.
+echo "==> deploying VaultMath"
+LIBOUT=$(forge create src/VaultMath.sol:VaultMath \
+  --rpc-url "$RPC" --private-key "$PRIVATE_KEY" --broadcast $TX --gas-limit 1500000 --json)
+LIB=$(printf '%s' "$LIBOUT" | python3 -c "
+import json,re,sys
+raw=sys.stdin.read()
+for line in raw.splitlines():
+    line=line.strip()
+    if line.startswith('{'):
+        try:
+            a=json.loads(line).get('deployedTo')
+            if a: print(a); break
+        except ValueError: pass
+else:
+    m=re.search(r'Deployed to:\s*(0x[0-9a-fA-F]{40})', raw)
+    print(m.group(1) if m else '')")
+if [ -z "$LIB" ]; then echo "VaultMath deployment could not be parsed"; echo "$LIBOUT"; exit 1; fi
+echo "LIBRARY $LIB"
+mkdir -p deployments
+echo "$LIB" > "deployments/vaultmath_${NETWORK}.txt"
+sleep 4
+
 echo "==> deploying AyHbarVault"
 OUT=$(FOUNDRY_PROFILE=default forge create src/AyHbarVault.sol:AyHbarVault \
+  --libraries src/VaultMath.sol:VaultMath:"$LIB" \
   --rpc-url "$RPC" --private-key "$PRIVATE_KEY" --broadcast $TX --gas-limit 5600000 --json \
   --constructor-args \
     "$(g hbarx)" "$(g pool)" "$(g pair)" "$(g whbarToken)" "$(g whbarWrapper)" \

@@ -12,7 +12,13 @@ J=addresses.json
 RPC=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['rpc'])")
 ADDR=${1:-$(cat "deployments/vault_${NETWORK}.txt" 2>/dev/null || echo 0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e)}
 
-forge build >/dev/null
+LIB=${LIBRARY:-$(cat "deployments/vaultmath_${NETWORK}.txt" 2>/dev/null)}
+if [ -n "$LIB" ]; then
+  forge build --libraries src/VaultMath.sol:VaultMath:"$LIB" >/dev/null
+else
+  echo "set LIBRARY=0x... (the deployed VaultMath) so the build links the same way"
+  exit 1
+fi
 CHAIN=$(cast code "$ADDR" --rpc-url "$RPC")
 python3 - "$ADDR" "$CHAIN" << 'PY'
 import json, sys

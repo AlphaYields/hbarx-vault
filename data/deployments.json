@@ -1,43 +1,70 @@
 {
- "network": "hedera-testnet",
- "chainId": 296,
- "vault": {
-  "hedera": "0.0.11131621",
-  "evm": "0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e",
-  "url": "https://hashscan.io/testnet/contract/0.0.11131621",
-  "symbol": "ayHBAR",
-  "decimals": 14,
-  "asset": "HBARX 0.0.2231533"
+ "mainnet": {
+  "network": "hedera-mainnet",
+  "chainId": 295,
+  "vault": {
+   "hedera": "0.0.10930650",
+   "evm": "0x77239cF80266039645ac87683Ca26d33d4Cf3CDC",
+   "url": "https://hashscan.io/mainnet/contract/0.0.10930650",
+   "symbol": "ayHBAR",
+   "decimals": 14,
+   "asset": "HBARX 0.0.834116"
+  },
+  "roles": {
+   "owner": "0x400682786dEe019d002a7900841c0586Cb0440C7",
+   "guardian": "0xb76150B158C747a75787143E9a0C85E20A0134b7",
+   "curator": "0xADa452b96C65A931dB47Af71b55257646b2Fa94F",
+   "feeRecipient": "0xADa452b96C65A931dB47Af71b55257646b2Fa94F"
+  },
+  "config": {
+   "performanceFeeBps": 2000,
+   "managementFeeBps": 0,
+   "withdrawTimelockSeconds": 86400,
+   "depositCapRaw": "10000000000000",
+   "maxSlippageBps": 100
+  }
  },
- "roles": {
-  "owner": "0x2A7e11875115bc5A0d82f3357A0EE2fD032192F3",
-  "guardian": "0x5C72f1Cf6d87e0017b7574Fc3d41629f5DaE8687",
-  "curator": "0x49c8a1dC0b78348a139eF4b49E4d305126ffF2A1"
- },
- "config": {
-  "performanceFeeBps": 2000,
-  "managementFeeBps": 0,
-  "withdrawTimelockSeconds": 86400,
-  "depositCapRaw": "8787427657314",
-  "maxSlippageBps": 100
- },
- "verified_on_chain": {
-  "deploy": "0x9afd5fb9a1477cfe4766bf74580bc43782d059de7cd5313a4d407aa61b35afec",
-  "associate": "0x7cc91e143b99dac842e08aef3069b5db25687224b638f450cd9e046754911f47",
-  "deposit_hbarx": "0xc6a463f7b4cf397a3d7d58b1264bd7bf5fa1eeea1143bb8990deeb630bc473e6",
-  "deposit_hbar": "0x750c15d2cd278652eeb24d240bf3073506493d182f744ac400628c59fe6fd92c",
-  "request_withdraw": "0xe21d3c8856ecfd42e17a67d07121271bc330566b72110b0dbecad5857e78d6cc",
-  "cancel_request": "0x57bb15728424c0506cff82209127252c6a863459e6d810665a1e559d772db485",
-  "redeem_matured": "0x7eb6770ae9e13ca81e772f92ce1ceab3f080591fc28377f0898f0261cfe5be0b",
-  "withdraw_matured": "0x96f0561e871f755a6c58495d61c5ce154e746f2b486e112ab2a85bd038a6cdcf",
-  "accrue_fees": "0xb42b9a6fe676dc18259dc6cf35c917171a6383137574a55724c751bbf5d9d52a",
-  "pause": "0x9f5ed7c0152cb29a31e2dc50bc8d60e741c3075212ad2bb767d78d24e90bd3f7",
-  "deleverage_while_paused": "0x9219f14891a27c017e465db6dcb4e039aa76efcdd4dadc83c216a9535c493ab1",
-  "unpause": "0x690ea0dc7ca8e5028bcee68cd95040956b46ba07f5e1b159455480d2497e26db",
-  "curator_set_cap": "0xb702e8ca0c381d471391011820e9fe5208ef68467c82a4a91984afbd182c90d2"
- },
- "tests": {
-  "count": 35,
-  "passing": 35
+ "testnet": {
+  "network": "hedera-testnet",
+  "chainId": 296,
+  "vault": {
+   "hedera": "0.0.11131621",
+   "evm": "0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e",
+   "url": "https://hashscan.io/testnet/contract/0.0.11131621",
+   "symbol": "ayHBAR",
+   "decimals": 14,
+   "asset": "HBARX 0.0.2231533"
+  },
+  "roles": {
+   "owner": "0x2A7e11875115bc5A0d82f3357A0EE2fD032192F3",
+   "guardian": "0x5C72f1Cf6d87e0017b7574Fc3d41629f5DaE8687",
+   "curator": "0x49c8a1dC0b78348a139eF4b49E4d305126ffF2A1"
+  },
+  "config": {
+   "performanceFeeBps": 2000,
+   "managementFeeBps": 0,
+   "withdrawTimelockSeconds": 86400,
+   "depositCapRaw": "8787427657314",
+   "maxSlippageBps": 100
+  },
+  "verified_on_chain": {
+   "deploy": "0x9afd5fb9a1477cfe4766bf74580bc43782d059de7cd5313a4d407aa61b35afec",
+   "associate": "0x7cc91e143b99dac842e08aef3069b5db25687224b638f450cd9e046754911f47",
+   "deposit_hbarx": "0xc6a463f7b4cf397a3d7d58b1264bd7bf5fa1eeea1143bb8990deeb630bc473e6",
+   "deposit_hbar": "0x750c15d2cd278652eeb24d240bf3073506493d182f744ac400628c59fe6fd92c",
+   "request_withdraw": "0xe21d3c8856ecfd42e17a67d07121271bc330566b72110b0dbecad5857e78d6cc",
+   "cancel_request": "0x57bb15728424c0506cff82209127252c6a863459e6d810665a1e559d772db485",
+   "redeem_matured": "0x7eb6770ae9e13ca81e772f92ce1ceab3f080591fc28377f0898f0261cfe5be0b",
+   "withdraw_matured": "0x96f0561e871f755a6c58495d61c5ce154e746f2b486e112ab2a85bd038a6cdcf",
+   "accrue_fees": "0xb42b9a6fe676dc18259dc6cf35c917171a6383137574a55724c751bbf5d9d52a",
+   "pause": "0x9f5ed7c0152cb29a31e2dc50bc8d60e741c3075212ad2bb767d78d24e90bd3f7",
+   "deleverage_while_paused": "0x9219f14891a27c017e465db6dcb4e039aa76efcdd4dadc83c216a9535c493ab1",
+   "unpause": "0x690ea0dc7ca8e5028bcee68cd95040956b46ba07f5e1b159455480d2497e26db",
+   "curator_set_cap": "0xb702e8ca0c381d471391011820e9fe5208ef68467c82a4a91984afbd182c90d2"
+  },
+  "tests": {
+   "count": 35,
+   "passing": 35
+  }
  }
 }

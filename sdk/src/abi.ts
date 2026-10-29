@@ -14,7 +14,6 @@ export const VAULT_ABI = [
   "function previewDeposit(uint256 assets) view returns (uint256)",
   "function previewRedeem(uint256 shares) view returns (uint256)",
   "function previewWithdraw(uint256 assets) view returns (uint256)",
-  "function liquidAssets() view returns (uint256)",
 
   // limits and state
   "function maxDeposit(address) view returns (uint256)",
@@ -35,7 +34,8 @@ export const VAULT_ABI = [
   "function oracle() view returns (address)",
 
   // conversion quotes
-  "function quoteWhbarToAsset(uint256 tinybar) view returns (uint256)",
+  "function assetPriceInWhbar() view returns (uint256)",
+  "function venues(uint256) view returns (address pair, uint16 feeNum, bool active)",
 
   // deposits
   "function deposit(uint256 assets, address receiver) returns (uint256)",
@@ -62,6 +62,10 @@ export const VAULT_ABI = [
   "error NoMaturedRequest()",
   "error TimelockNotElapsed()",
   "error InvalidParam()",
+  "error PriceUnavailable()",
+  "error OracleDisagreement()",
+  "error UnhealthyPosition()",
+  "error NoProfit()",
 ] as const;
 
 /** HBARX behaves as an ERC-20 through Hedera's token facade. */

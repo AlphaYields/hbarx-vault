@@ -64,7 +64,8 @@ CAP=$(call 'depositCap()(uint256)')
 echo "=== deposits ==="
 cast send "$HBARX" "approve(address,uint256)" "$V" 100000000000000000 --rpc-url "$RPC" --private-key "$OWNER_KEY" $TX --gas-limit $GAS >/dev/null 2>&1; sleep 3
 want_ok "deposit 0.1 HBARX" "$OWNER_KEY" "deposit(uint256,address)" 10000000 "$ME"
-Q=$(call "quoteWhbarToAsset(uint256)(uint256)" 100000000)
+RATE=$(call "assetPriceInWhbar()(uint256)")
+Q=$(python3 -c "print(100000000*100000000//int('$RATE'))")
 want_ok "deposit 1 native HBAR" "$OWNER_KEY" "depositHBAR(address,uint256)" "$ME" "$((Q*95/100))" --value 1000000000000000000
 echo "  share price now $(call 'pricePerShare()(uint256)'), assets $(call 'totalAssets()(uint256)')"
 

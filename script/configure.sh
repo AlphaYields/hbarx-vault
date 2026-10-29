@@ -45,11 +45,18 @@ hbar=list(p.values())[0]['price']
 print(int(10000/(hbar*float(sys.argv[1]))*1e8))" "$RATE")
 echo "deposit cap: $CAP raw (= 10,000 USD at today's price)"
 
-echo "==> guardian"; send "setGuardian(address)" "$GUARDIAN"
-echo "==> curator";  send "setCurator(address)" "$CURATOR"
+echo "==> roles";    send "setRoles(address,address)" "$GUARDIAN" "$CURATOR"
 echo "==> fees";     send "setFees(uint16,uint16,address)" 2000 0 "$(cast wallet address --private-key "$PRIVATE_KEY")"
 echo "==> timelock"; send "setWithdrawTimelock(uint64)" 86400
 echo "==> cap";      send "setDepositCap(uint256)" "$CAP"
+
+# Strategy references and bounds: oracle, staking contract, 1% swap slippage,
+# 1% oracle-agreement tolerance, health floor 1.4, permissionless unwind at 1.15.
+ORACLE=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['oracle']['evm'])")
+STAKE=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['staking']['evm'])")
+echo "==> strategy"
+send "configureStrategy(address,address,uint16,uint16,uint256,uint256)" \
+     "$ORACLE" "$STAKE" 100 100 1400000000000000000 1150000000000000000
 
 echo
 echo "guardian        $(cast call $VAULT 'guardian()(address)' --rpc-url $RPC)"
@@ -58,3 +65,5 @@ echo "performanceFee  $(cast call $VAULT 'performanceFee()(uint16)' --rpc-url $R
 echo "managementFee   $(cast call $VAULT 'managementFee()(uint16)' --rpc-url $RPC) bps"
 echo "withdrawTimelock $(cast call $VAULT 'withdrawTimelock()(uint64)' --rpc-url $RPC) s"
 echo "depositCap      $(cast call $VAULT 'depositCap()(uint256)' --rpc-url $RPC)"
+echo "maxSlippageBps  $(cast call $VAULT 'maxSlippageBps()(uint16)' --rpc-url $RPC)"
+echo "assetPrice      $(cast call $VAULT 'assetPriceInWhbar()(uint256)' --rpc-url $RPC)"

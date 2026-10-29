@@ -21,7 +21,6 @@ export interface VaultMethods {
   previewDeposit(assets: bigint): Promise<bigint>;
   previewRedeem(shares: bigint): Promise<bigint>;
   previewWithdraw(assets: bigint): Promise<bigint>;
-  liquidAssets(): Promise<bigint>;
 
   // limits and state
   maxDeposit(who: string): Promise<bigint>;
@@ -40,7 +39,8 @@ export interface VaultMethods {
   curator(): Promise<string>;
   staking(): Promise<string>;
   oracle(): Promise<string>;
-  quoteWhbarToAsset(tinybar: bigint): Promise<bigint>;
+  assetPriceInWhbar(): Promise<bigint>;
+  venues(i: bigint): Promise<[string, bigint, boolean]>;
   withdrawableAt(who: string): Promise<[bigint, bigint]>;
 
   // writes

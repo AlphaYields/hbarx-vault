@@ -235,17 +235,22 @@ export class AyHbarVault {
     const tinybar = hbarIn / 10_000_000_000n;
     const staking = await this.vault.staking();
 
+    // The vault converts by whichever route pays more and falls back to a pool
+    // if the staking entry is unavailable, so quote the staking rate where one
+    // is configured and the vault's own anchored rate otherwise.
     let expectedAssets: bigint;
-    let route: Quote["route"];
+    let route: Quote["route"] = "pool";
     if (staking !== ZeroAddress) {
-      // Stader pays the protocol rate: HBARX out = tinybar / rate, rate is 1e8-scaled.
-      const stader = new Contract(staking, STAKING_ABI, this.runner) as unknown as StakingContract;
-      const rate = await stader.getExchangeRate();
-      expectedAssets = (tinybar * 100_000_000n) / rate;
-      route = "stader";
+      try {
+        const stader = new Contract(staking, STAKING_ABI, this.runner) as unknown as StakingContract;
+        const rate = await stader.getExchangeRate();
+        expectedAssets = (tinybar * 100_000_000n) / rate;
+        route = "stader";
+      } catch {
+        expectedAssets = (tinybar * 100_000_000n) / (await this.vault.assetPriceInWhbar());
+      }
     } else {
-      expectedAssets = await this.vault.quoteWhbarToAsset(tinybar);
-      route = "pool";
+      expectedAssets = (tinybar * 100_000_000n) / (await this.vault.assetPriceInWhbar());
     }
     return {
       route,

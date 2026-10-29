@@ -1,5 +1,26 @@
 # Deployment
 
+## Live on Hedera mainnet
+
+**Vault `0.0.10930650`** — [HashScan](https://hashscan.io/mainnet/contract/0.0.10930650)
+`0x77239cF80266039645ac87683Ca26d33d4Cf3CDC`
+
+| Setting | Value |
+|---|---|
+| Share token | `ayHBAR`, 14 decimals |
+| Underlying asset | HBARX (`0.0.834116`) |
+| Performance fee | 20% (2000 bps), high-water mark |
+| Management fee | 0% |
+| Withdrawal timelock | 86,400 s (1 day) |
+| Deposit cap | 100,000 HBARX |
+| Slippage limit | 1% operating, 5% contract ceiling |
+| Owner | `0x400682786dEe019d002a7900841c0586Cb0440C7` |
+| Guardian | `0xb76150B158C747a75787143E9a0C85E20A0134b7` |
+| Curator and fee recipient | `0xADa452b96C65A931dB47Af71b55257646b2Fa94F` |
+
+Deposits in both assets and withdrawals through the queue have been executed on this
+deployment; every transaction is on HashScan under the contract above.
+
 ## Live on Hedera testnet
 
 **Vault `0.0.11131621`** — [HashScan](https://hashscan.io/testnet/contract/0.0.11131621)
@@ -94,19 +115,19 @@ send(){ cast send $VAULT "$@" --rpc-url $RPC --private-key $PRIVATE_KEY $TXFLAGS
 | Action | Command |
 |---|---|
 | Set fees and recipient | `send "setFees(uint16,uint16,address)" 2000 0 $RECIPIENT` |
-| Set guardian | `send "setGuardian(address)" $GUARDIAN` |
-| Set curator | `send "setCurator(address)" $CURATOR` |
+| Set both delegate roles | `send "setRoles(address,address)" $GUARDIAN $CURATOR` |
+| Set strategy references and bounds | `send "configureStrategy(address,address,uint16,uint16,uint256,uint256)" $ORACLE $STAKING 100 100 1400000000000000000 1150000000000000000` |
+| Register a liquidity venue | `send "addVenue(address,uint16)" $PAIR 997` |
+| Take a venue out of routing | `send "setVenueActive(uint256,bool)" 1 false` |
 | Set withdrawal timelock | `send "setWithdrawTimelock(uint64)" 86400` |
-| Set slippage limit | `send "setMaxSlippageBps(uint16)" 100` |
-| Set price oracle | `send "setOracle(address)" $ORACLE` |
-| Set staking contract | `send "setStaking(address)" $STADER` |
 | Unpause | `send "unpause()"` |
 | Recover a stray token | `send "sweep(address,address,uint256)" $TOKEN $TO $AMOUNT` |
 | Begin ownership transfer | `send "transferOwnership(address)" $NEW_OWNER` |
 | Accept ownership (from the new owner) | `send "acceptOwnership()"` |
 
-Fees are capped in the contract at 50% performance and 5% management; the timelock at 30 days
-and the slippage limit at 5%. `sweep` rejects the vault's asset, its collateral receipt, its
+Fees are capped in the contract at 50% performance and 5% management; the timelock at 30 days,
+the slippage limit at 5% and the oracle tolerance at 5%. Supplying collateral marks the reserve
+as collateral on every call, so it cannot be left unset. `sweep` rejects the vault's asset, its collateral receipt, its
 debt token and the borrowed asset.
 
 **Guardian**
@@ -115,6 +136,7 @@ debt token and the borrowed asset.
 |---|---|
 | Pause (halts deposits and withdrawals) | `send "pause()"` |
 | Unwind leverage | `send "deleverage(uint8,uint256,uint16)" 3 $WITHDRAW_PER_LOOP 100` |
+| Convert a stray borrowed balance back | `send "recoverWhbar()"` (anyone) |
 
 `deleverage` stays available while paused, so a position can always be brought back to safety.
 
@@ -125,8 +147,9 @@ debt token and the borrowed asset.
 | Set the deposit cap | `send "setDepositCap(uint256)" $CAP` |
 | Supply idle assets as collateral | `send "supplyToPool(uint256)" $AMOUNT` |
 | Withdraw collateral to idle | `send "withdrawFromPool(uint256)" $AMOUNT` |
-| Enable the collateral reserve | `send "enableCollateral()"` |
 | Build leverage | `send "leverUp(uint8,uint256,uint16)" 3 $BORROW_PER_LOOP 100` |
+| Sell on one venue, buy back on another | `send "arbitrage(uint256,uint256,uint256,uint256)" 1 0 $AMOUNT $MIN_PROFIT` |
+| Sell on a venue, mint back through staking | `send "arbitrage(uint256,uint256,uint256,uint256)" 0 $MAX_UINT $AMOUNT $MIN_PROFIT` |
 
 **Anyone**
 
@@ -152,8 +175,8 @@ cast call $VAULT "withdrawableAt(address)(uint256,uint64)" $USER --rpc-url $RPC
 
 ## Mainnet checklist
 
-1. **Fund the deployer.** Roughly 15 HBAR covers deployment (≈5.7) and `associate()` (≈3.3)
-   with headroom.
+1. **Fund the deployer.** Roughly 25 HBAR covers the library (≈1.5), the vault (≈6) and
+   `associate()` (≈3.3) with headroom for configuration.
 2. **Deploy**, then **configure** with the real guardian and curator addresses.
 3. **Recompute the deposit cap** — `configure.sh` prices it at run time, but confirm the HBARX
    rate it uses is current.
@@ -161,16 +184,17 @@ cast call $VAULT "withdrawableAt(address)(uint256,uint64)" $USER --rpc-url $RPC
    deployment on mainnet — the live price oracle (`0x2e78BedD7175dEC675949f50a2604bC835A47a03`),
    required before any leverage is taken, and Stader (`0.0.1412503`). Read both back with
    `oracle()` and `staking()`.
-5. **Pick the HBAR conversion route.** With `staking()` set, `depositHBAR` stakes at the
-   protocol rate; with it set to the zero address, it wraps to WHBAR and swaps on the
-   SaucerSwap HBARX/WHBAR pool under the caller's `minAssetsOut`. `setStaking(address)` switches
-   between them at any time, so compare both quotes and use whichever is available and better
-   priced — the pool is not always the worse of the two:
+5. **Register the conversion venues.** Deposits are routed automatically: the vault quotes
+   minting at the staking protocol's rate and buying on each registered pool, and takes the
+   better. The first venue is set at deployment from `addresses.json`; register any others
+   with `addVenue(pair, feeNum)`, where `feeNum` is the pool's fee numerator out of 1000 —
+   997 for a 0.30% pool. Read the current rate the vault prices against with:
 
    ```bash
-   cast call $VAULT "quoteWhbarToAsset(uint256)(uint256)" 10000000000 --rpc-url $RPC
-   cast call 0x0000000000000000000000000000000000158d97 "getExchangeRate()(uint256)" --rpc-url $RPC
+   cast call $VAULT "assetPriceInWhbar()(uint256)" --rpc-url $RPC
+   cast call $VAULT "venues(uint256)(address,uint16,bool)" 0 --rpc-url $RPC
    ```
+
 6. **Verify roles** read back correctly before announcing the vault, and confirm the guardian
    and curator accounts exist on mainnet and hold HBAR — an address stored in the contract
    cannot sign anything until its account is funded.
@@ -185,7 +209,8 @@ and set the limit close to the estimate. Typical costs at 114 tinybar/gas:
 
 | Operation | Gas | Cost |
 |---|---:|---:|
-| Deploy | 4,995,522 | ≈5.7 HBAR |
+| Deploy `VaultMath` | ~1,300,000 | ≈1.5 HBAR |
+| Deploy the vault | ~5,300,000 | ≈6.0 HBAR |
 | `associate()` | 2,858,664 | ≈3.3 HBAR |
 | Deposit HBARX | 165,161 | ≈0.19 HBAR |
 | Deposit HBAR (wrap + swap) | 273,214 | ≈0.31 HBAR |

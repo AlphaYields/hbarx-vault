@@ -11,17 +11,74 @@ contract MockToken is ERC20 {
     function decimals() public view override returns (uint8) { return d; }
     function mint(address to, uint256 v) external { _mint(to, v); }
     function burnFrom_(address f, uint256 v) external { _burn(f, v); }
+    function setBalance(address who, uint256 v) external {
+        uint256 b = balanceOf(who);
+        if (v > b) _mint(who, v - b); else if (b > v) _burn(who, b - v);
+    }
 }
 
+/// Lending mock with the one rule that matters here: collateral is released
+/// only while the position stays healthy afterwards, exactly as the real
+/// market behaves. Base currency is WHBAR units.
 contract MockPool {
     MockToken a; MockToken at; MockToken dt; MockToken w;
+    uint256 public rate = 1.43e8;         // WHBAR per whole asset unit, 1e8-scaled
+    uint256 public constant LT  = 6828;   // liquidation threshold, bps
+    uint256 public constant LTV = 6298;
+    bool public enforceHealth = true;
+
     constructor(MockToken _a, MockToken _at, MockToken _dt, MockToken _w){a=_a;at=_at;dt=_dt;w=_w;}
+    function setRate(uint256 r) external { rate = r; }
+    function setEnforceHealth(bool e) external { enforceHealth = e; }
+
     function deposit(address, uint256 amt, address on, uint16) external { a.transferFrom(msg.sender,address(this),amt); at.mint(on,amt); }
-    function withdraw(address, uint256 amt, address to) external returns (uint256){ at.burnFrom_(msg.sender,amt); a.transfer(to,amt); return amt; }
-    function borrow(address, uint256 amt, uint256, uint16, address on) external { dt.mint(on,amt); w.mint(msg.sender,amt); }
+    function withdraw(address, uint256 amt, address to) external returns (uint256){
+        at.burnFrom_(msg.sender,amt);
+        if (enforceHealth) require(_hf(msg.sender) >= 1e18, "HF<1");
+        a.transfer(to,amt); return amt;
+    }
+    function borrow(address, uint256 amt, uint256, uint16, address on) external {
+        dt.mint(on,amt); w.mint(msg.sender,amt);
+        if (enforceHealth) require(_hf(on) >= 1e18, "HF<1");
+    }
     function repay(address, uint256 amt, uint256, address on) external returns (uint256){ w.transferFrom(msg.sender,address(this),amt); dt.burnFrom_(on,amt); return amt; }
     function setUserUseReserveAsCollateral(address, bool) external {}
-    function getUserAccountData(address) external pure returns (uint256,uint256,uint256,uint256,uint256,uint256){ return (0,0,0,0,0,type(uint256).max); }
+
+    function _collBase(address u) internal view returns (uint256) { return at.balanceOf(u) * rate / 1e8; }
+    function _hf(address u) internal view returns (uint256) {
+        uint256 d = dt.balanceOf(u);
+        if (d == 0) return type(uint256).max;
+        return _collBase(u) * LT / 1e4 * 1e18 / d;
+    }
+    function getUserAccountData(address u) external view returns (uint256,uint256,uint256,uint256,uint256,uint256){
+        return (_collBase(u), dt.balanceOf(u), 0, LT, LTV, _hf(u));
+    }
+}
+
+/// Staking mock: mints the asset at a protocol rate, and can be switched off
+/// to reproduce an unavailable staking entry.
+contract MockStaking {
+    MockToken a; uint256 public rateValue = 1.43e8; bool public broken;
+    constructor(MockToken _a){a=_a;}
+    function setRate(uint256 r) external { rateValue = r; }
+    function setBroken(bool b) external { broken = b; }
+    function getExchangeRate() external view returns (uint256){ return rateValue; }
+    function stake() external payable {
+        require(!broken, "stake down");
+        a.mint(msg.sender, (msg.value / 1e10) * 1e8 / rateValue);
+    }
+}
+
+/// Minimal WHBAR wrapper: native in, token out, and back again.
+contract MockWhbar {
+    MockToken w;
+    constructor(MockToken _w){w=_w;}
+    receive() external payable {}
+    function deposit() external payable { w.mint(msg.sender, msg.value / 1e10); }
+    function withdraw(uint256 amt) external {
+        w.burnFrom_(msg.sender, amt);
+        (bool ok,) = msg.sender.call{value: amt * 1e10}(""); require(ok, "send");
+    }
 }
 
 contract MockOracle {
@@ -35,10 +92,20 @@ contract MockPair {
     address public token0; address public token1; uint112 r0; uint112 r1;
     constructor(address t0,address t1,uint112 _r0,uint112 _r1){token0=t0;token1=t1;r0=_r0;r1=_r1;}
     function getReserves() external view returns (uint112,uint112,uint32){ return (r0,r1,0); }
-    function setReserves(uint112 _r0,uint112 _r1) external { r0=_r0; r1=_r1; }
+    function setReserves(uint112 _r0,uint112 _r1) external {
+        r0=_r0; r1=_r1;
+        MockToken(token0).setBalance(address(this), _r0);
+        MockToken(token1).setBalance(address(this), _r1);
+    }
     function swap(uint256 a0,uint256 a1,address to,bytes calldata) external {
         if(a0>0) MockToken(token0).mint(to,a0);
         if(a1>0) MockToken(token1).mint(to,a1);
+        // reserves move the way a real pool's would
+        uint256 in0 = MockToken(token0).balanceOf(address(this));
+        uint256 in1 = MockToken(token1).balanceOf(address(this));
+        r0 = uint112(in0 > a0 ? in0 - a0 : 0);
+        r1 = uint112(in1 > a1 ? in1 - a1 : 0);
+        if (r0 == 0) r0 = 1; if (r1 == 0) r1 = 1;
     }
 }
 
@@ -61,12 +128,17 @@ contract AyHbarVaultTest is Test {
         aTok  = new MockToken("aHBARX",8); dTok = new MockToken("dWHBAR",8);
         pool  = new MockPool(hbarx,aTok,dTok,whbar);
         oracle= new MockOracle();
-        pair  = new MockPair(address(whbar),address(hbarx),uint112(1000*ONE),uint112(700*ONE));
+        // Priced in line with the oracle and deep enough that a test-sized trade
+        // barely moves it, so the anchored slippage floor is not tripped by the
+        // mock's own shallowness.
+        pair  = new MockPair(address(whbar),address(hbarx),uint112(143_000*ONE),uint112(100_000*ONE));
+        whbar.mint(address(pair), 143_000*ONE);
+        hbarx.mint(address(pair), 100_000*ONE);
         oracle.set(address(whbar),1e18); oracle.set(address(hbarx),1.43e18);
 
         v = new AyHbarVault(IERC20(address(hbarx)), address(pool), address(pair), address(whbar),
             address(0), address(aTok), address(dTok), address(oracle), address(0), feeRcv);
-        v.setGuardian(guardian); v.setCurator(curator);
+        v.setRoles(guardian, curator);
 
         // associate() needs the HTS precompile; reproduce only its approval effect
         vm.startPrank(address(v));
@@ -294,9 +366,10 @@ contract AyHbarVaultTest is Test {
         _dep(alice, 100*ONE);
         vm.prank(curator);
         vm.expectRevert(); v.leverUp(1, 1*ONE, 101);        // above the 1% default
-        v.setMaxSlippageBps(300);                           // owner raises it
-        assertEq(v.maxSlippageBps(), 300);
-        vm.expectRevert(); v.setMaxSlippageBps(501);        // but not past the 5% ceiling
+        v.configureStrategy(address(oracle), address(0), 300, 100, 1.4e18, 1.15e18);
+        assertEq(v.maxSlippageBps(), 300);                  // owner raises it
+        vm.expectRevert();                                  // but not past the 5% ceiling
+        v.configureStrategy(address(oracle), address(0), 501, 100, 1.4e18, 1.15e18);
     }
 
     function test_borrowedAssetIsProtectedFromSweep() public {
@@ -430,5 +503,205 @@ contract AyHbarVaultTest is Test {
         vm.prank(curator);
         vm.expectRevert();
         v.withdrawFromPool(0);
+    }
+
+    // ══════════════════════════════════════════════════ pricing and routing
+
+    /// Set up a vault wired to staking and a second pool, as mainnet is.
+    function _withStakingAndTwoVenues() internal returns (MockStaking st, MockPair pair2) {
+        st = new MockStaking(hbarx);
+        MockWhbar wrap = new MockWhbar(whbar);
+        vm.deal(address(wrap), 1_000_000 ether);
+        AyHbarVault nv = new AyHbarVault(
+            IERC20(address(hbarx)), address(pool), address(pair), address(whbar),
+            address(wrap), address(aTok), address(dTok), address(oracle), address(st), feeRcv);
+        vm.startPrank(address(nv));
+        hbarx.approve(address(pool), type(uint256).max);
+        whbar.approve(address(pool), type(uint256).max);
+        vm.stopPrank();
+        nv.setRoles(guardian, curator);
+        pair2 = new MockPair(address(whbar), address(hbarx), uint112(143_000*ONE), uint112(100_000*ONE));
+        whbar.mint(address(pair2), 143_000*ONE);
+        hbarx.mint(address(pair2), 100_000*ONE);
+        nv.addVenue(address(pair2), 997);
+        v = nv;
+    }
+
+    /// The share price follows the staking protocol's redemption rate, not what
+    /// a pool happens to quote. Pushing the pool does not move NAV.
+    function test_navFollowsProtocolRateNotPoolPrice() public {
+        (MockStaking st,) = _withStakingAndTwoVenues();
+        _dep(alice, 100*ONE);
+        vm.prank(curator); v.supplyToPool(0);
+        dTok.mint(address(v), 10*ONE);
+
+        uint256 navBefore = v.totalAssets();
+        pair.setReserves(uint112(1*ONE), uint112(500_000*ONE));   // pool price collapses
+        assertEq(v.totalAssets(), navBefore, "pool price moved the share price");
+
+        st.setRate(1.5e8);                                        // the protocol rate moves
+        oracle.set(address(hbarx), 1.5e18);
+        assertGt(v.totalAssets(), navBefore, "protocol rate did not move the share price");
+    }
+
+    /// When the two price sources disagree beyond the tolerance, the vault
+    /// refuses to price rather than picking one.
+    function test_navRefusesWhenSourcesDisagree() public {
+        (MockStaking st,) = _withStakingAndTwoVenues();
+        _dep(alice, 100*ONE);
+        dTok.mint(address(v), 10*ONE);
+        v.totalAssets();                       // agrees today
+
+        st.setRate(2.0e8);                     // 40% apart from the oracle's 1.43
+        vm.expectRevert(AyHbarVault.OracleDisagreement.selector);
+        v.totalAssets();
+    }
+
+    /// A swap is floored against the redemption rate, so a pushed pool is
+    /// rejected instead of being traded into.
+    function test_swapFloorRejectsPushedPool() public {
+        (MockStaking st, MockPair pair2) = _withStakingAndTwoVenues();
+        _dep(alice, 1000*ONE);
+        vm.prank(curator); v.supplyToPool(0);
+
+        // With staking open the vault would simply route around a bad pool, so
+        // close that route and leave it no alternative.
+        st.setBroken(true);
+        pair.setReserves(uint112(300_000*ONE), uint112(100_000*ONE));
+        pair2.setReserves(uint112(300_000*ONE), uint112(100_000*ONE));
+
+        vm.prank(curator);
+        vm.expectRevert();
+        v.leverUp(1, 100*ONE, 100);
+    }
+
+    /// Unwinding sells only what the repayment needs and leaves nothing behind.
+    function test_unwindStrandsNoBorrowedToken() public {
+        _withStakingAndTwoVenues();
+        _dep(alice, 1000*ONE);
+        vm.prank(curator); v.supplyToPool(0);
+        dTok.mint(address(v), 100*ONE);
+        whbar.mint(address(pool), 1_000*ONE);          // the pool can be repaid
+
+        uint256 navBefore = v.totalAssets();
+        vm.prank(guardian); v.deleverage(1, 300*ONE, 100);
+
+        assertEq(dTok.balanceOf(address(v)), 0, "debt not cleared");
+        // What remains is the slippage allowance on the final purchase, not the
+        // whole idle balance the old sizing would have sold.
+        assertLe(whbar.balanceOf(address(v)), 2*ONE, "borrowed token stranded");
+        assertGt(v.totalAssets(), navBefore * 97 / 100, "value lost unwinding");
+    }
+
+    /// Whatever borrowed token does end up in the vault is counted as an asset
+    /// and can be converted back.
+    function test_looseBorrowedTokenIsCountedAndRecoverable() public {
+        _withStakingAndTwoVenues();
+        _dep(alice, 100*ONE);
+        uint256 navBefore = v.totalAssets();
+
+        whbar.mint(address(v), 10*ONE);
+        assertGt(v.totalAssets(), navBefore, "loose balance not in NAV");
+
+        uint256 got = v.recoverWhbar();
+        assertGt(got, 0);
+        assertEq(whbar.balanceOf(address(v)), 0);
+    }
+
+    /// Under leverage the vault advertises only what it can actually pay, and a
+    /// withdrawal unwinds enough leverage to settle without anyone intervening.
+    function test_withdrawalUnderLeverageIsHonestAndSelfServing() public {
+        _withStakingAndTwoVenues();
+        v.setWithdrawTimelock(0);
+        _dep(alice, 1000*ONE);
+        vm.prank(curator); v.supplyToPool(0);
+        dTok.mint(address(v), 400*ONE);
+        whbar.mint(address(pool), 10_000*ONE);
+
+        uint256 shares = v.balanceOf(alice);
+        assertLt(v.maxRedeem(alice), shares, "advertised more than it can pay");
+
+        uint256 before = hbarx.balanceOf(alice);
+        uint256 claimable = v.maxRedeem(alice);
+        vm.prank(alice);
+        v.redeem(claimable, alice, alice);
+        assertGt(hbarx.balanceOf(alice), before, "nothing paid out");
+    }
+
+    /// The HBAR deposit counts its own amount against the cap once, not twice.
+    function test_hbarDepositCountsCapOnce() public {
+        _withStakingAndTwoVenues();
+        _dep(alice, 400*ONE);
+        v.setDepositCap(1000*ONE);
+
+        vm.deal(alice, 1000 ether);
+        vm.prank(alice);
+        v.depositHBAR{value: 350 ether}(alice, 0);      // 350 HBAR, headroom 600
+        assertGt(v.balanceOf(alice), 0);
+    }
+
+    /// Deposits take the better of staking and the pools, and keep working when
+    /// the staking entry is unavailable.
+    function test_depositRoutesToTheBetterVenueAndSurvivesStakingOutage() public {
+        (MockStaking st,) = _withStakingAndTwoVenues();
+        vm.deal(alice, 1000 ether);
+
+        vm.prank(alice);
+        uint256 viaStaking = v.depositHBAR{value: 10 ether}(alice, 0);
+        assertGt(viaStaking, 0);
+
+        st.setBroken(true);                             // staking entry goes down
+        vm.prank(alice);
+        uint256 viaPool = v.depositHBAR{value: 10 ether}(alice, 0);
+        assertGt(viaPool, 0, "deposit failed when staking was unavailable");
+    }
+
+    /// A cross-venue trade must leave the vault with more than it started with.
+    function test_arbitrageOnlySettlesWhenItAdds() public {
+        (, MockPair pair2) = _withStakingAndTwoVenues();
+        _dep(alice, 1000*ONE);
+
+        // Both venues priced the same: a round trip pays two fees and loses.
+        vm.prank(curator);
+        vm.expectRevert(AyHbarVault.NoProfit.selector);
+        v.arbitrage(0, 1, 10*ONE, 0);
+
+        // Second venue now pays well above the first for the asset: sell there,
+        // buy back on the first, and the round trip adds.
+        pair2.setReserves(uint112(200_000*ONE), uint112(100_000*ONE));
+        uint256 before = v.totalAssets();
+        vm.prank(curator);
+        uint256 profit = v.arbitrage(1, 0, 10*ONE, 0);
+        assertGt(profit, 0);
+        assertGt(v.totalAssets(), before, "arbitrage did not add to the vault");
+    }
+
+    /// Leverage must leave the position at or above the configured health floor.
+    function test_leverageRespectsTheHealthFloor() public {
+        _withStakingAndTwoVenues();
+        _dep(alice, 1000*ONE);
+        vm.prank(curator); v.supplyToPool(0);
+
+        vm.prank(curator);
+        vm.expectRevert();
+        v.leverUp(5, 500*ONE, 100);                     // would land under the floor
+    }
+
+    /// Anyone may unwind once the position is unhealthy, and nobody may churn a
+    /// healthy one.
+    function test_unwindIsPermissionlessOnlyWhenUnhealthy() public {
+        _withStakingAndTwoVenues();
+        _dep(alice, 1000*ONE);
+        vm.prank(curator); v.supplyToPool(0);
+        dTok.mint(address(v), 100*ONE);
+        whbar.mint(address(pool), 10_000*ONE);
+
+        vm.prank(bob);
+        vm.expectRevert(AyHbarVault.NotAuthorized.selector);
+        v.deleverage(1, 50*ONE, 100);                   // healthy: refused
+
+        dTok.mint(address(v), 780*ONE);                 // health factor now ~1.1
+        vm.prank(bob);
+        v.deleverage(1, 50*ONE, 100);                   // permitted
     }
 }

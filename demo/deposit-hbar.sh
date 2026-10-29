@@ -8,7 +8,8 @@ WEI=$(python3 -c "import sys;print(int(float(sys.argv[1])*1e18))" "$AMT_HUMAN")
 TINY=$(python3 -c "import sys;print(int(float(sys.argv[1])*1e8))" "$AMT_HUMAN")
 
 # Quote the conversion and allow 5% slippage.
-EXPECTED=$(cast call $VAULT "quoteWhbarToAsset(uint256)(uint256)" $TINY --rpc-url $RPC | num)
+RATE=$(cast call $VAULT "assetPriceInWhbar()(uint256)" --rpc-url $RPC | num)
+EXPECTED=$(python3 -c "import sys;print(int(sys.argv[1])*100000000//int(sys.argv[2]))" "$TINY" "$RATE")
 MINOUT=$(python3 -c "import sys;print(int(int(sys.argv[1])*0.95))" "$EXPECTED")
 echo "depositing $AMT_HUMAN HBAR"
 echo "  expected $(fmt8 $EXPECTED) HBARX, min accepted $(fmt8 $MINOUT) (5% slippage)"
