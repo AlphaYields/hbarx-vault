@@ -31,7 +31,7 @@ export const MAINNET: NetworkConfig = {
   chainId: 295,
   mirrorUrl: "https://mainnet.mirrornode.hedera.com",
   explorer: "https://hashscan.io/mainnet",
-  vault: "0x77239cF80266039645ac87683Ca26d33d4Cf3CDC",
+  vault: "0x147455820BD5Bc74C3ef849628a56aF8ABA1156f",
   hbarx: "0x00000000000000000000000000000000000cbA44",
   hbarxTokenId: "0.0.834116",
 };

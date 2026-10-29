@@ -3,8 +3,8 @@
 An ERC-4626 vault for HBAR staking on **Hedera**. Deposit HBAR or HBARX, hold one share
 token, and the vault does the rest.
 
-**Live on Hedera mainnet: [`0.0.10930650`](https://hashscan.io/mainnet/contract/0.0.10930650)**
-— `0x77239cF80266039645ac87683Ca26d33d4Cf3CDC`
+**Live on Hedera mainnet: [`0.0.10937454`](https://hashscan.io/mainnet/contract/0.0.10937454)**
+— `0x147455820BD5Bc74C3ef849628a56aF8ABA1156f`
 
 ---
 
@@ -45,7 +45,7 @@ HBAR ───────┤                               ├──► HBARX �
 | Performance fee | 20%, charged only above a high-water mark |
 | Management fee | 0% |
 | Withdrawal timelock | 1 day |
-| Network | Hedera mainnet, `0.0.10930650` |
+| Network | Hedera mainnet, `0.0.10937454` |
 | Licence | MIT |
 
 ## Deposits and withdrawals
@@ -198,8 +198,8 @@ NETWORK=testnet ./script/configure.sh
 
 ## Status
 
-**Live on Hedera mainnet at [`0.0.10930650`](https://hashscan.io/mainnet/contract/0.0.10930650)**
-(`0x77239cF80266039645ac87683Ca26d33d4Cf3CDC`), holding HBARX with deposits and withdrawals
+**Live on Hedera mainnet at [`0.0.10937454`](https://hashscan.io/mainnet/contract/0.0.10937454)**
+(`0x147455820BD5Bc74C3ef849628a56aF8ABA1156f`), holding HBARX with deposits and withdrawals
 open.
 
 Deposits in both assets, the withdrawal queue, a matured claim by both `redeem` and `withdraw`,

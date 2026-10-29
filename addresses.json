@@ -91,8 +91,13 @@
       "max_leverage": 2.7
     },
     "vault": {
-      "evm": "0x77239cF80266039645ac87683Ca26d33d4Cf3CDC",
-      "hedera": "0.0.10930650"
+      "evm": "0x147455820BD5Bc74C3ef849628a56aF8ABA1156f",
+      "hedera": "0.0.10937454"
+    },
+    "vaultMath": {
+      "evm": "0x55FA8bA02c637B72FF9a9D3096a2730D6cc75a32",
+      "hedera": "0.0.10937449",
+      "note": "linked library holding the pricing and routing arithmetic"
     }
   },
   "config": {

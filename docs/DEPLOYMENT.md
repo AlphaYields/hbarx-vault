@@ -2,8 +2,8 @@
 
 ## Live on Hedera mainnet
 
-**Vault `0.0.10930650`** — [HashScan](https://hashscan.io/mainnet/contract/0.0.10930650)
-`0x77239cF80266039645ac87683Ca26d33d4Cf3CDC`
+**Vault `0.0.10937454`** — [HashScan](https://hashscan.io/mainnet/contract/0.0.10937454)
+`0x147455820BD5Bc74C3ef849628a56aF8ABA1156f`
 
 | Setting | Value |
 |---|---|
@@ -17,9 +17,10 @@
 | Owner | `0x400682786dEe019d002a7900841c0586Cb0440C7` |
 | Guardian | `0xb76150B158C747a75787143E9a0C85E20A0134b7` |
 | Curator and fee recipient | `0xADa452b96C65A931dB47Af71b55257646b2Fa94F` |
+| Linked library | `VaultMath` [`0.0.10937449`](https://hashscan.io/mainnet/contract/0.0.10937449) — `0x55FA8bA02c637B72FF9a9D3096a2730D6cc75a32` |
 
-Deposits in both assets and withdrawals through the queue have been executed on this
-deployment; every transaction is on HashScan under the contract above.
+The deployed runtime is byte-for-byte what this repository compiles, which
+`script/verify-bytecode.sh` reproduces against the linked library above.
 
 ## Live on Hedera testnet
 

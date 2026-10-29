@@ -14,6 +14,28 @@ RPC=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['rpc'])")
 EXP=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['explorer'])")
 ME=$(cast wallet address --private-key "$PRIVATE_KEY")
 TX="--legacy --gas-price 1140000000000"
+# Deployment gas scales with contract size, and the vault sits near Hedera's
+# 24 KB code limit. Override with DEPLOY_GAS if a change pushes it higher.
+DEPLOY_GAS=${DEPLOY_GAS:-9000000}
+LIB_GAS=${LIB_GAS:-2000000}
+
+parse_address() {
+  python3 -c "
+import json, re, sys
+raw = sys.stdin.read()
+addr = None
+try:                                    # --json may pretty-print across lines
+    addr = json.loads(raw).get('deployedTo')
+except ValueError:
+    pass
+if not addr:
+    m = re.search(r'\"deployedTo\"\s*:\s*\"(0x[0-9a-fA-F]{40})\"', raw)
+    addr = m.group(1) if m else None
+if not addr:
+    m = re.search(r'Deployed to:\s*(0x[0-9a-fA-F]{40})', raw)
+    addr = m.group(1) if m else None
+print(addr or '')"
+}
 
 echo "network   $NETWORK"
 echo "deployer  $ME"
@@ -32,23 +54,22 @@ else
 # The vault links against VaultMath, which holds the pricing and routing
 # arithmetic. Deploying it separately is what keeps the vault inside the 24 KB
 # contract-code limit, so it goes first and its address is linked in.
-echo "==> deploying VaultMath"
-LIBOUT=$(forge create src/VaultMath.sol:VaultMath \
-  --rpc-url "$RPC" --private-key "$PRIVATE_KEY" --broadcast $TX --gas-limit 1500000 --json)
-LIB=$(printf '%s' "$LIBOUT" | python3 -c "
-import json,re,sys
-raw=sys.stdin.read()
-for line in raw.splitlines():
-    line=line.strip()
-    if line.startswith('{'):
-        try:
-            a=json.loads(line).get('deployedTo')
-            if a: print(a); break
-        except ValueError: pass
-else:
-    m=re.search(r'Deployed to:\s*(0x[0-9a-fA-F]{40})', raw)
-    print(m.group(1) if m else '')")
-if [ -z "$LIB" ]; then echo "VaultMath deployment could not be parsed"; echo "$LIBOUT"; exit 1; fi
+# Set LIBRARY=0x... to reuse one that is already deployed.
+if [ -n "${LIBRARY:-}" ]; then
+  LIB="$LIBRARY"
+  echo "==> using the existing VaultMath $LIB"
+else
+  echo "==> deploying VaultMath"
+  LIBOUT=$(forge create src/VaultMath.sol:VaultMath \
+    --rpc-url "$RPC" --private-key "$PRIVATE_KEY" --broadcast $TX --gas-limit $LIB_GAS --json)
+  LIB=$(printf '%s' "$LIBOUT" | parse_address)
+  if [ -z "$LIB" ]; then
+    echo "VaultMath deployed but its address could not be read. Re-run with:"
+    echo "  LIBRARY=<address from the output below> NETWORK=$NETWORK ./script/deploy.sh"
+    echo "$LIBOUT"
+    exit 1
+  fi
+fi
 echo "LIBRARY $LIB"
 mkdir -p deployments
 echo "$LIB" > "deployments/vaultmath_${NETWORK}.txt"
@@ -57,26 +78,11 @@ sleep 4
 echo "==> deploying AyHbarVault"
 OUT=$(FOUNDRY_PROFILE=default forge create src/AyHbarVault.sol:AyHbarVault \
   --libraries src/VaultMath.sol:VaultMath:"$LIB" \
-  --rpc-url "$RPC" --private-key "$PRIVATE_KEY" --broadcast $TX --gas-limit 5600000 --json \
+  --rpc-url "$RPC" --private-key "$PRIVATE_KEY" --broadcast $TX --gas-limit $DEPLOY_GAS --json \
   --constructor-args \
     "$(g hbarx)" "$(g pool)" "$(g pair)" "$(g whbarToken)" "$(g whbarWrapper)" \
     "$(g aToken)" "$(g debtToken)" "$(g oracle)" "$(g staking)" "$ME")
-VAULT=$(printf '%s' "$OUT" | python3 -c "
-import json,re,sys
-raw = sys.stdin.read()
-addr = None
-for line in raw.splitlines():                       # --json puts one object on a line
-    line = line.strip()
-    if line.startswith('{'):
-        try: addr = json.loads(line).get('deployedTo') or addr
-        except ValueError: pass
-if not addr:                                        # fall back to the human-readable form
-    m = re.search(r'Deployed to:\s*(0x[0-9a-fA-F]{40})', raw)
-    addr = m.group(1) if m else None
-if not addr:
-    sys.stderr.write('could not read the deployed address from forge output:\n' + raw + '\n')
-    sys.exit(1)
-print(addr)") || VAULT=""
+VAULT=$(printf '%s' "$OUT" | parse_address) || VAULT=""
 if [ -z "$VAULT" ]; then
   echo "Deployment output could not be parsed. Before re-running, check whether a contract"
   echo "was in fact created, which costs ~5.3 HBAR to repeat:"
