@@ -3,6 +3,9 @@
 #   NETWORK=testnet ./deploy.sh      (default)
 #   NETWORK=mainnet ./deploy.sh
 # Requires: PRIVATE_KEY (owner/deployer) in the environment.
+# Optional recovery inputs, for an interrupted run:
+#   RESUME_VAULT=0x...    skip the deployment, finish the setup only
+#   REUSE_LIBRARY=0x...   link against a VaultMath that is already deployed
 set -euo pipefail
 cd "$(dirname "$0")/.."
 NETWORK=${NETWORK:-testnet}
@@ -55,18 +58,27 @@ echo "balance   $(python3 -c "import sys;print('%.2f HBAR' % (int(sys.argv[1])/1
 # the middle of the deploy command's own output.
 git submodule update --init --recursive >/dev/null 2>&1 || true
 
-# Recovery path: VAULT=0x... skips the deployment and only finishes the setup.
-# Useful if a deployment succeeded but the run was interrupted afterwards.
-if [ -n "${VAULT:-}" ]; then
+# Deliberately not named VAULT or LIBRARY: those are exported for everyday
+# operation, and reading them here would silently skip the deployment or link
+# the new vault against an old library.
+if [ -n "${VAULT:-}" ] || [ -n "${LIBRARY:-}" ]; then
+  echo "note: VAULT/LIBRARY are set in the environment and ignored here."
+  echo "      to resume or reuse, pass RESUME_VAULT= or REUSE_LIBRARY=."
+fi
+
+# Recovery path: RESUME_VAULT=0x... skips the deployment and only finishes the
+# setup. Useful if a deployment succeeded but the run was interrupted after.
+if [ -n "${RESUME_VAULT:-}" ]; then
+  VAULT="$RESUME_VAULT"
   echo "==> using the existing vault $VAULT (skipping deployment)"
 else
 
 # The vault links against VaultMath, which holds the pricing and routing
 # arithmetic. Deploying it separately is what keeps the vault inside the 24 KB
 # contract-code limit, so it goes first and its address is linked in.
-# Set LIBRARY=0x... to reuse one that is already deployed.
-if [ -n "${LIBRARY:-}" ]; then
-  LIB="$LIBRARY"
+# Set REUSE_LIBRARY=0x... to reuse one that is already deployed.
+if [ -n "${REUSE_LIBRARY:-}" ]; then
+  LIB="$REUSE_LIBRARY"
   echo "==> using the existing VaultMath $LIB"
 else
   echo "==> deploying VaultMath"
@@ -75,7 +87,7 @@ else
   LIB=$(printf '%s' "$LIBOUT" | parse_address)
   if [ -z "$LIB" ]; then
     echo "VaultMath deployed but its address could not be read. Re-run with:"
-    echo "  LIBRARY=<address from the output below> NETWORK=$NETWORK ./script/deploy.sh"
+    echo "  REUSE_LIBRARY=<address from the output below> NETWORK=$NETWORK ./script/deploy.sh"
     echo "$LIBOUT"
     exit 1
   fi

@@ -2,14 +2,14 @@
 
 ## Live on Hedera mainnet
 
-**Vault `0.0.10937478`** — [HashScan](https://hashscan.io/mainnet/contract/0.0.10937478)
-`0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9`
+**Vault `0.0.10937629`** — [HashScan](https://hashscan.io/mainnet/contract/0.0.10937629)
+`0x33ad9057C2e17Fa5b4Abc119606c9CEC97ed85Db`
 
 | Setting | Value |
 |---|---|
 | Share token | `ayHBAR`, 14 decimals |
-| Underlying asset | HBARX (`0.0.834116`) |
-| Performance fee | 20% (2000 bps), high-water mark |
+| Denomination token | HBARX (`0.0.834116`) — shares, net assets, yield and fees all measured in HBARX |
+| Performance fee | 20% (2000 bps), charged only on profit in HBARX, above a high-water mark |
 | Management fee | 0% |
 | Withdrawal timelock | 1 s |
 | Deposit cap | 100,000 HBARX |
@@ -18,10 +18,17 @@
 | Guardian | `0xb76150B158C747a75787143E9a0C85E20A0134b7` |
 | Curator | `0xADa452b96C65A931dB47Af71b55257646b2Fa94F` |
 | Fee recipient | `0x400682786dEe019d002a7900841c0586Cb0440C7` |
-| Linked library | `VaultMath` [`0.0.10937449`](https://hashscan.io/mainnet/contract/0.0.10937449) — `0x55FA8bA02c637B72FF9a9D3096a2730D6cc75a32` |
+| Linked library | `VaultMath` [`0.0.10937628`](https://hashscan.io/mainnet/contract/0.0.10937628) — `0xc799Bcc002E8D1E6E8737A907e29394C9B15B9BC` |
+| Registered venue 0 | SaucerSwap V1 pair [`0.0.1463739`](https://hashscan.io/mainnet/contract/0.0.1463739) — `feeNum` 997, kind 0 |
+| Registered venue 1 | SaucerSwap V2 pool [`0.0.3961531`](https://hashscan.io/mainnet/contract/0.0.3961531) — fee tier 1500, kind 1 |
+| Swap router | SaucerSwap V2 [`0.0.3949434`](https://hashscan.io/mainnet/contract/0.0.3949434) — `0x00000000000000000000000000000000003c437A` |
 
 The deployed runtime is byte-for-byte what this repository compiles, which
 `script/verify-bytecode.sh` reproduces against the linked library above.
+
+Cross-venue arbitrage and best-route deposit conversion are active on this deployment. The
+staking and lending strategies are implemented, tested and configured here, and need no
+redeployment to begin earning — see [Strategies](../README.md#strategies).
 
 ## Live on Hedera testnet
 
@@ -32,7 +39,7 @@ The deployed runtime is byte-for-byte what this repository compiles, which
 |---|---|
 | Share token | `ayHBAR`, 14 decimals |
 | Underlying asset | HBARX (`0.0.2231533`) |
-| Performance fee | 20% (2000 bps), high-water mark |
+| Performance fee | 20% (2000 bps), charged only on profit in HBARX, above a high-water mark |
 | Management fee | 0% |
 | Withdrawal timelock | 86,400 s (1 day) |
 | Deposit cap | 87,874 HBARX (≈ 10,000 USD at deployment) |

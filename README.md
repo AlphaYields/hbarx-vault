@@ -3,8 +3,11 @@
 An ERC-4626 vault for HBAR staking on **Hedera**. Deposit HBAR or HBARX, hold one share
 token, and the vault does the rest.
 
-**Live on Hedera mainnet: [`0.0.10937478`](https://hashscan.io/mainnet/contract/0.0.10937478)**
-— `0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9`
+**Live on Hedera mainnet: [`0.0.10937629`](https://hashscan.io/mainnet/contract/0.0.10937629)**
+— `0x33ad9057C2e17Fa5b4Abc119606c9CEC97ed85Db`
+
+**Web app: [app-dev.alphayields.ai](https://app-dev.alphayields.ai/)** — source at
+[AlphaYields/dapp-ayhbar](https://github.com/AlphaYields/dapp-ayhbar)
 
 ---
 
@@ -43,14 +46,16 @@ HBAR ───────┤                               ├──► HBARX �
 | | |
 |---|---|
 | Share token | `ayHBAR` |
-| Underlying asset | HBARX |
+| **Denomination token** | **HBARX** — shares, net assets, yield and fees are all measured in HBARX |
 | Accepted deposits | **HBAR or HBARX** |
 | Withdrawals | HBARX |
 | Standard | ERC-4626 (OpenZeppelin core, inherited unmodified) |
 | Performance fee | 20%, charged only above a high-water mark |
 | Management fee | 0% |
-| Withdrawal timelock | 1 day |
-| Network | Hedera mainnet, `0.0.10937478` |
+| Withdrawal timelock | 1 second |
+| Network | Hedera mainnet, `0.0.10937629` |
+| Web app | [app-dev.alphayields.ai](https://app-dev.alphayields.ai/) |
+| Web app source | [AlphaYields/dapp-ayhbar](https://github.com/AlphaYields/dapp-ayhbar) |
 | Licence | MIT |
 
 ## Deposits and withdrawals
@@ -73,13 +78,54 @@ pay out in HBARX. Queued shares stay invested and keep earning right up until th
 Ready-to-run scripts for every flow are in [`demo/`](demo/) as shell, and in
 [`sdk/`](sdk/) as a typed TypeScript client for front ends.
 
+## Strategies
+
+The vault denominates in **HBARX**: every strategy below is measured by whether it ends with
+more HBARX per share than it started with, and the contract enforces that rule itself rather
+than trusting the caller.
+
+| Strategy | Status | What it does | Depends on |
+|---|---|---|---|
+| **Cross-venue arbitrage** | **Active** | Sells HBARX on the venue paying most and buys it back on the cheaper one, in one transaction. Runs across both pool shapes and in either direction. | Nothing — live today |
+| **Best-route deposit conversion** | **Active** | Quotes every constant-product venue on each HBAR deposit and converts at the best price. | Nothing — live today |
+| **Arbitrage into staking** | Ready | Sells HBARX on a venue trading above the redemption rate, then mints it back at that rate — capturing the premium without a swap on the return leg. | Stader's staking entry reopening |
+| **Deposit routing through staking** | Ready | Adds minting at the redemption rate to the deposit quote, taking it whenever it beats every pool. | Stader's staking entry reopening |
+| **HBAR/HBARX looping** | Ready | Supplies HBARX as collateral, borrows HBAR against it, converts and repeats — scaling the staking yield. Collateral and debt are both HBAR-denominated, so this multiplies the yield rather than adding market exposure. | Bonzo's lending market resuming |
+
+**Active** strategies are running on mainnet now. **Ready** strategies are implemented in this
+repository, covered by the test suite, and configured on the deployed contract; each waits on
+an external protocol rather than on any further work here. No redeployment is needed to switch
+one on — the staking routes come alive the moment Stader accepts deposits, and the lending leg
+is enabled by the curator once Bonzo's market resumes.
+
+### How arbitrage is run today
+
+Two venues are registered on mainnet: the SaucerSwap V1 HBARX/WHBAR pair and the V2
+concentrated-liquidity pool. Every ordered pair of them is a route, as is each venue into
+staking.
+
+A keeper bot (`sdk/scripts/keeper.ts`) watches all of them continuously. Each pass it
+enumerates every route, tries a ladder of trade sizes, and simulates each against the live
+contract with `eth_call` — so profitability is decided by the vault, not by the bot. It submits
+only the best route that pays, and passes the simulated profit as the floor, so a route that
+decays between simulation and execution reverts rather than settling worse.
+
+Both legs settle in a single transaction. The vault compares its HBARX balance before and
+after and reverts unless the balance went up, which is what makes the operation safe by
+construction: it can add to the vault and cannot subtract from it, whatever the pools do in
+between. Routes that would take days to settle — redeeming through the staking queue, for
+instance — are deliberately not routes at all.
+
 ## Fees
 
 Both fees are taken by minting shares to the fee recipient, so vault assets are never touched.
 
-**Performance fee** applies only to gains above the high-water mark. After a drawdown, no fee
-is charged on the way back to the previous peak — depositors are never billed twice for the
-same ground.
+**Performance fee** is charged **only on profit, measured in the denomination token**. The
+vault records the high-water mark of its HBARX-per-share price; the fee applies to the gain
+above that mark and to nothing else. Principal is never charged, and after a drawdown no fee
+is taken on the way back to the previous peak — depositors are never billed twice for the same
+ground. A deposit does not create a fee, and neither does the HBARX price moving in HBAR or
+dollar terms: only more HBARX per share does.
 
 **Management fee** accrues pro-rata over time on assets under management. It is currently set
 to zero.
@@ -155,6 +201,14 @@ A few platform behaviours shape the implementation:
   vault needs.
 - Transactions are legacy-type; the JSON-RPC relay does not accept EIP-1559 fee fields.
 
+## Web app
+
+The front end is deployed at **[app-dev.alphayields.ai](https://app-dev.alphayields.ai/)** and
+its source is public at
+**[github.com/AlphaYields/dapp-ayhbar](https://github.com/AlphaYields/dapp-ayhbar)**. It talks
+to the deployed vault through the client in [`sdk/`](sdk/), so the app and this repository read
+the same addresses and the same ABI.
+
 ## TypeScript SDK
 
 [`sdk/`](sdk/) holds a typed ethers v6 client plus runnable scripts — deposit in
@@ -205,9 +259,15 @@ NETWORK=testnet ./script/configure.sh
 
 ## Status
 
-**Live on Hedera mainnet at [`0.0.10937478`](https://hashscan.io/mainnet/contract/0.0.10937478)**
-(`0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9`), holding HBARX with deposits and withdrawals
-open.
+**Live on Hedera mainnet at [`0.0.10937629`](https://hashscan.io/mainnet/contract/0.0.10937629)**
+(`0x33ad9057C2e17Fa5b4Abc119606c9CEC97ed85Db`), denominated in HBARX, with deposits and
+withdrawals open, and reachable through the web app at
+[app-dev.alphayields.ai](https://app-dev.alphayields.ai/).
+
+Cross-venue arbitrage and best-route deposit conversion are the strategies running today, with
+the keeper bot watching every route. The staking and lending strategies are built, tested and
+configured, and begin earning as soon as Stader and Bonzo reopen — see
+[Strategies](#strategies).
 
 Deposits in both assets, the withdrawal queue, a matured claim by both `redeem` and `withdraw`,
 fee accrual, role separation, the deposit cap, the configured bounds and pausing have all been
