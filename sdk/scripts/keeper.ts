@@ -32,7 +32,7 @@
  */
 import { Contract, formatUnits } from "ethers";
 import { AyHbarVault, makeWallet, showAssets, type NetworkConfig } from "../src/index.js";
-import { loadConfig, GAS, DECIMALS } from "../src/config.js";
+import { loadConfig, GAS, DECIMALS, gasPriceWei } from "../src/config.js";
 import { ERC20_ABI } from "../src/abi.js";
 import type { Erc20Contract } from "../src/types.js";
 
@@ -204,7 +204,7 @@ async function pass(): Promise<void> {
     candidate.buy,
     candidate.amountIn,
     candidate.profit,
-    { type: 0, gasPrice: GAS.priceWei, gasLimit: GAS.deposit },
+    { type: 0, gasPrice: await gasPriceWei(wallet), gasLimit: GAS.deposit },
   );
   const receipt = await tx.wait();
   const ok = receipt?.status === 1;

@@ -11,7 +11,7 @@ import {
 } from "ethers";
 import { ERC20_ABI, STAKING_ABI, VAULT_ABI } from "./abi.js";
 import type { Erc20Contract, StakingContract, VaultContract } from "./types.js";
-import { DECIMALS, DEFAULT_SLIPPAGE_BPS, GAS, loadConfig, type NetworkConfig } from "./config.js";
+import { DECIMALS, DEFAULT_SLIPPAGE_BPS, GAS, gasPriceWei, loadConfig, type NetworkConfig } from "./config.js";
 
 /* ──────────────────────────────────────────────────────────── amount helpers */
 
@@ -156,9 +156,20 @@ export class AyHbarVault {
     return `${this.cfg.explorer}/transaction/${hash}`;
   }
 
-  /** Hedera needs legacy (type 0) transactions with an explicit gas limit. */
-  private txOpts(gasLimit: bigint, value?: bigint) {
-    return { type: 0, gasPrice: GAS.priceWei, gasLimit, ...(value === undefined ? {} : { value }) };
+  /**
+   * Hedera needs legacy (type 0) transactions with an explicit gas limit.
+   *
+   * The gas price is read from the relay rather than hardcoded: the relay's
+   * minimum moves, and a send below it is rejected outright.
+   */
+  private async txOpts(gasLimit: bigint, value?: bigint) {
+    const gasPrice = await gasPriceWei(this.runner);
+    return { type: 0, gasPrice, gasLimit, ...(value === undefined ? {} : { value }) };
+  }
+
+  /** The gas price this client would send with right now, in weibar. */
+  async gasPrice(): Promise<bigint> {
+    return gasPriceWei(this.runner);
   }
 
   private async settle(tx: { hash: string; wait: () => Promise<ContractTransactionReceipt | null> }): Promise<TxResult> {
@@ -304,7 +315,7 @@ export class AyHbarVault {
     const tx = await this.vault.depositHBAR(
       opts.receiver,
       floor,
-      this.txOpts(GAS.deposit, quote.hbarIn),
+      await this.txOpts(GAS.deposit, quote.hbarIn),
     );
     return { ...(await this.settle(tx)), quote };
   }
@@ -321,36 +332,36 @@ export class AyHbarVault {
     let approve: TxResult | undefined;
     if (allowance < assets) {
       // Never approve uint256 max: Hedera's token service rejects very large values.
-      const tx = await this.hbarx.approve(this.cfg.vault, assets, this.txOpts(GAS.approveHts));
+      const tx = await this.hbarx.approve(this.cfg.vault, assets, await this.txOpts(GAS.approveHts));
       approve = await this.settle(tx);
       if (approve.status !== "success") return { approve, deposit: approve };
       await sleep(4000); // the relay lags the mined nonce
     }
-    const tx = await this.vault.deposit(assets, opts.receiver, this.txOpts(GAS.deposit));
+    const tx = await this.vault.deposit(assets, opts.receiver, await this.txOpts(GAS.deposit));
     return { approve, deposit: await this.settle(tx) };
   }
 
   /** Queue shares for withdrawal. Required whenever the timelock is non-zero. */
   async requestWithdraw(shares: bigint): Promise<TxResult> {
-    const tx = await this.vault.requestWithdraw(shares, this.txOpts(GAS.withdraw));
+    const tx = await this.vault.requestWithdraw(shares, await this.txOpts(GAS.withdraw));
     return this.settle(tx);
   }
 
   /** Take queued shares back out of the queue. Allowed any time before a claim. */
   async cancelWithdrawRequest(): Promise<TxResult> {
-    const tx = await this.vault.cancelWithdrawRequest(this.txOpts(GAS.withdraw));
+    const tx = await this.vault.cancelWithdrawRequest(await this.txOpts(GAS.withdraw));
     return this.settle(tx);
   }
 
   /** Claim a matured request by share count. */
   async redeem(shares: bigint, receiver: string, owner: string): Promise<TxResult> {
-    const tx = await this.vault.redeem(shares, receiver, owner, this.txOpts(GAS.withdraw));
+    const tx = await this.vault.redeem(shares, receiver, owner, await this.txOpts(GAS.withdraw));
     return this.settle(tx);
   }
 
   /** Claim a matured request by asset amount. */
   async withdraw(assets: bigint, receiver: string, owner: string): Promise<TxResult> {
-    const tx = await this.vault.withdraw(assets, receiver, owner, this.txOpts(GAS.withdraw));
+    const tx = await this.vault.withdraw(assets, receiver, owner, await this.txOpts(GAS.withdraw));
     return this.settle(tx);
   }
 }

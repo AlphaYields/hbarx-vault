@@ -34,6 +34,11 @@ console.log(`  guardian         ${s.guardian}`);
 console.log(`  curator          ${s.curator}`);
 console.log(`  fee recipient    ${s.feeRecipient}`);
 
+// Read, not hardcoded: the relay's minimum moves and a send below it is
+// rejected. This is the price the client would send with right now.
+const gp = await vault.gasPrice();
+console.log(`\n  gas price        ${gp / 10n ** 10n} tinybar/gas  (${gp} weibar, read from the relay and padded)`);
+
 if (me) {
   const p = await vault.position(me);
   console.log(`\nwallet ${me}`);

@@ -1,4 +1,4 @@
-import { getAddress } from "ethers";
+import { getAddress, type Provider, type Signer } from "ethers";
 
 /**
  * Everything you may need to change lives in this file.
@@ -56,13 +56,69 @@ export const TESTNET: NetworkConfig = {
  * The vault's own setters are all under 100k.
  */
 export const GAS = {
-  /** 114 tinybar per gas, expressed in weibar. The relay rejects lower. */
-  priceWei: 1_140_000_000_000n,
   approveHts: 900_000n,
   deposit: 900_000n,
   withdraw: 900_000n,
   adminCall: 400_000n,
 };
+
+/**
+ * Gas price.
+ *
+ * The relay enforces a minimum and that minimum moves — it went from 114 to
+ * 116 tinybar per gas within a day, and anything below it is rejected outright
+ * with "Gas price '...' is below configured minimum". Worse, the rejection
+ * costs nothing but still advances the relay's cached nonce, so the *next*
+ * send fails with WRONG_NONCE even though it is correct.
+ *
+ * So the price is never hardcoded: it is read from the relay with eth_gasPrice
+ * and padded, which absorbs a rise between the read and the send. The relay
+ * only reserves gasLimit x gasPrice and refunds what is not used, so paying
+ * over the minimum costs nothing but a larger reservation.
+ */
+
+/** Padding over the relay's reported minimum, in percent. */
+export const GAS_PRICE_PADDING_PCT = 20n;
+
+/** Used only when the relay will not answer. Above every minimum seen so far. */
+export const GAS_PRICE_FALLBACK_WEI = 1_400_000_000_000n;
+
+/** How long a reading stays fresh. Short, because the minimum can move. */
+const GAS_PRICE_TTL_MS = 30_000;
+
+let cachedGasPrice: { wei: bigint; at: number } | undefined;
+
+/** Discard the cached reading. Mainly for tests. */
+export function resetGasPriceCache(): void {
+  cachedGasPrice = undefined;
+}
+
+/**
+ * The gas price to send with, read from the relay and padded.
+ *
+ * Cached briefly so a multi-transaction script does not re-query per send.
+ * Accepts a signer or a provider; falls back to the constant above if neither
+ * can answer, so a transient relay failure does not block a send.
+ */
+export async function gasPriceWei(
+  source: Provider | Signer | null | undefined,
+  now: number = Date.now(),
+): Promise<bigint> {
+  if (cachedGasPrice && now - cachedGasPrice.at < GAS_PRICE_TTL_MS) return cachedGasPrice.wei;
+
+  let wei = GAS_PRICE_FALLBACK_WEI;
+  const provider = source && "provider" in source ? source.provider : (source as Provider | null);
+  if (provider) {
+    try {
+      const { gasPrice } = await provider.getFeeData();
+      if (gasPrice && gasPrice > 0n) wei = (gasPrice * (100n + GAS_PRICE_PADDING_PCT)) / 100n;
+    } catch {
+      // Keep the fallback: a relay that will not quote is no reason not to send.
+    }
+  }
+  cachedGasPrice = { wei, at: now };
+  return wei;
+}
 
 /** Decimals, fixed by the contract. */
 export const DECIMALS = {

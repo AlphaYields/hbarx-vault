@@ -106,6 +106,27 @@ the **whole limit** when a call runs out of gas. The measured figures are in
 `GAS` in `config.ts`: an HTS approve costs ~783k, an HBAR deposit ~275k, an
 HBARX deposit ~165k, a claim ~169k.
 
+**2a. The gas price is read from the relay, never hardcoded.** The relay
+enforces a minimum and that minimum moves — it went from 114 to 116 tinybar per
+gas within a day. A send below it is rejected with:
+
+```
+Gas price '1140000000000' is below configured minimum
+```
+
+and the rejection costs nothing but still advances the relay's cached nonce, so
+the *next* send fails with `WRONG_NONCE` even though it is correct. `config.ts`
+exposes `gasPriceWei(signerOrProvider)`, which calls `eth_gasPrice`, pads it by
+`GAS_PRICE_PADDING_PCT` (20%), and caches the reading for 30 seconds so a
+multi-transaction script does not re-query per send. Every write in this client
+goes through it. If the relay will not answer, `GAS_PRICE_FALLBACK_WEI` is used
+so a transient failure does not block a send.
+
+A front end that builds its own transactions must do the same — call
+`eth_gasPrice` and pay over it. Paying over the minimum costs nothing: the relay
+refunds whatever the transaction does not use, so only the reservation is
+larger. `npm run status` prints the price the client would send with.
+
 **3. A reverted transaction still returns a receipt.** `status` is the only
 thing that tells you what happened — never treat "the call returned" as
 success. Every write here returns `status: "success" | "failed"` and the scripts
