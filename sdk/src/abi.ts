@@ -35,7 +35,8 @@ export const VAULT_ABI = [
 
   // conversion quotes
   "function assetPriceInWhbar() view returns (uint256)",
-  "function venues(uint256) view returns (address pair, uint16 feeNum, bool active)",
+  "function venues(uint256) view returns (address pair, uint16 feeNum, bool active, uint8 kind)",
+  "function swapRouter() view returns (address)",
 
   // deposits
   "function deposit(uint256 assets, address receiver) returns (uint256)",
@@ -47,6 +48,10 @@ export const VAULT_ABI = [
   "function withdrawableAt(address owner) view returns (uint256 shares, uint64 unlockAt)",
   "function redeem(uint256 shares, address receiver, address owner) returns (uint256)",
   "function withdraw(uint256 assets, address receiver, address owner) returns (uint256)",
+
+  // arbitrage: sell on one venue, buy back on another or mint through staking
+  "function arbitrage(uint256 sellVenue, uint256 buyVenue, uint256 amountIn, uint256 minProfit) returns (uint256)",
+  "function whbar() view returns (address)",
 
   // events a UI may want to follow
   "event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)",

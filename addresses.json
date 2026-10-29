@@ -58,7 +58,18 @@
     "pair": {
       "evm": "0xb6d4c5a61a0c104b6c9222630fac403178725f7f",
       "hedera": "0.0.1463739",
-      "note": "EVM alias \u2014 long-zero fails in-contract"
+      "note": "EVM alias — long-zero fails in-contract"
+    },
+    "swapRouter": {
+      "evm": "0x00000000000000000000000000000000003c437a",
+      "hedera": "0.0.3949434",
+      "note": "SaucerSwap V2 router — set with setSwapRouter, used by concentrated venues"
+    },
+    "concentratedPair": {
+      "evm": "0x7eed8ad5b0b83d24bd4777c5a64e89e07f6fb692",
+      "hedera": "0.0.3961531",
+      "feeTier": 1500,
+      "note": "HBARX/WHBAR concentrated pool — register with addVenue(pool, 1500, 1)"
     },
     "whbarToken": {
       "evm": "0x0000000000000000000000000000000000163B5a",
@@ -78,12 +89,12 @@
     },
     "oracle": {
       "evm": "0x2e78BedD7175dEC675949f50a2604bC835A47a03",
-      "note": "live \u2014 HBARX 1.4298, WHBAR 1.0"
+      "note": "live — HBARX 1.4298, WHBAR 1.0"
     },
     "staking": {
       "evm": "0x0000000000000000000000000000000000158d97",
       "hedera": "0.0.1412503",
-      "note": "Stader \u2014 HBAR stakes at protocol rate, no slippage"
+      "note": "Stader — HBAR stakes at protocol rate, no slippage"
     },
     "params": {
       "hbarx_ltv_pct": 62.98,
@@ -91,8 +102,8 @@
       "max_leverage": 2.7
     },
     "vault": {
-      "evm": "0x147455820BD5Bc74C3ef849628a56aF8ABA1156f",
-      "hedera": "0.0.10937454"
+      "evm": "0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9",
+      "hedera": "0.0.10937478"
     },
     "vaultMath": {
       "evm": "0x55FA8bA02c637B72FF9a9D3096a2730D6cc75a32",
@@ -104,7 +115,7 @@
     "performanceFeeBps": 2000,
     "managementFeeBps": 0,
     "withdrawTimelockSeconds": 86400,
-    "depositCapNote": "10,000 USD equivalent \u2014 recompute at deploy time",
+    "depositCapNote": "10,000 USD equivalent — recompute at deploy time",
     "depositCapOnTestnet": {
       "hbarx": 87874.27657314,
       "raw8dp": "8787427657314",

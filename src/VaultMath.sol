@@ -27,8 +27,17 @@ library VaultMath {
 
     uint256 internal constant BPS = 10_000;
 
-    /// A constant-product pool the vault may route through.
-    struct Venue { address pair; uint16 feeNum; bool active; }
+    /// A pool the vault may route through.
+    ///
+    /// `kind` 0 is a constant-product pair, quoted and swapped directly.
+    /// `kind` 1 is a concentrated-liquidity pool, swapped through a router.
+    /// A concentrated pool cannot be quoted from reserves, so `quote` reports
+    /// zero for one — which keeps it out of automatic routing and, just as
+    /// importantly, means registering one can never break a deposit.
+    struct Venue { address pair; uint16 feeNum; bool active; uint8 kind; }
+
+    uint8 internal constant KIND_CONSTANT_PRODUCT = 0;
+    uint8 internal constant KIND_CONCENTRATED     = 1;
 
     /// Constant-product output after the venue's fee.
     function amountOut(uint256 amtIn, uint256 rIn, uint256 rOut, uint16 feeNum)
@@ -49,7 +58,7 @@ library VaultMath {
     function quote(Venue memory v, address whbar, bool inIsWhbar, uint256 amtIn)
         public view returns (uint256)
     {
-        if (!v.active || v.pair == address(0)) return 0;
+        if (!v.active || v.pair == address(0) || v.kind != KIND_CONSTANT_PRODUCT) return 0;
         (uint256 rW, uint256 rA) = reserves(v.pair, whbar);
         return inIsWhbar ? amountOut(amtIn, rW, rA, v.feeNum) : amountOut(amtIn, rA, rW, v.feeNum);
     }

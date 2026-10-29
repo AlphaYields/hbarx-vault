@@ -40,7 +40,16 @@ export interface VaultMethods {
   staking(): Promise<string>;
   oracle(): Promise<string>;
   assetPriceInWhbar(): Promise<bigint>;
-  venues(i: bigint): Promise<[string, bigint, boolean]>;
+  venues(i: bigint): Promise<[string, bigint, boolean, bigint]>;
+  swapRouter(): Promise<string>;
+  whbar(): Promise<string>;
+  /** Carries ethers' `staticCall`, so a route can be simulated before it is sent. */
+  arbitrage: {
+    (sellVenue: bigint, buyVenue: bigint, amountIn: bigint, minProfit: bigint,
+     o?: Overrides): Promise<ContractTransactionResponse>;
+    staticCall(sellVenue: bigint, buyVenue: bigint, amountIn: bigint, minProfit: bigint,
+               o?: Overrides): Promise<bigint>;
+  };
   withdrawableAt(who: string): Promise<[bigint, bigint]>;
 
   // writes

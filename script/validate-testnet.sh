@@ -22,7 +22,17 @@ RPC=$(python3 -c "import json;print(json.load(open('$J'))['testnet']['rpc'])")
 HBARX=$(python3 -c "import json;print(json.load(open('$J'))['testnet']['hbarx']['evm'])")
 V=${VAULT:-$(cat deployments/vault_testnet.txt)}
 ME=$(cast wallet address --private-key "$OWNER_KEY")
-TX="--legacy --gas-price 1140000000000"
+# Gas price: read from the relay and padded, because the network minimum moves.
+# A price under the current minimum is rejected with INSUFFICIENT_TX_FEE, and
+# that rejection costs nothing but still advances the relay's cached nonce - so
+# the next send fails with WRONG_NONCE. Paying over the minimum avoids both.
+gas_price(){
+  local p
+  p=$(cast gas-price --rpc-url "$RPC" 2>/dev/null) || p=
+  case "$p" in ''|*[!0-9]*) echo 1300000000000; return ;; esac
+  python3 -c "print(int($p * 12 // 10))"
+}
+TX="--legacy --gas-price $(gas_price)"
 PASS=0; FAIL=0
 GAS=400000                     # comfortably above the heaviest call (~273k)
 num(){ awk '{print $1}'; }

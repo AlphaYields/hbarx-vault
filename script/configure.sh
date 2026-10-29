@@ -11,17 +11,31 @@ NETWORK=${NETWORK:-testnet}
 J=addresses.json
 RPC=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['rpc'])")
 VAULT=$(cat "deployments/vault_${NETWORK}.txt")
-TX="--legacy --gas-price 1140000000000"
+# Gas price: read from the relay and padded, because the network minimum moves.
+# A price under the current minimum is rejected with INSUFFICIENT_TX_FEE, and
+# that rejection costs nothing but still advances the relay's cached nonce - so
+# the next send fails with WRONG_NONCE. Paying over the minimum avoids both.
+gas_price(){
+  local p
+  p=$(cast gas-price --rpc-url "$RPC" 2>/dev/null) || p=
+  case "$p" in ''|*[!0-9]*) echo 1300000000000; return ;; esac
+  python3 -c "print(int($p * 12 // 10))"
+}
+TX="--legacy --gas-price $(gas_price)"
 # The relay lags the mined nonce, so consecutive sends need a gap or the next
 # one is rejected with "Nonce too low". Retry on that, since it is transient.
+# GAS is per-call: 900k covers anything that touches one HTS token, but an HTS
+# approve alone costs about 783k, so a call making two of them needs more.
 send(){
-  local i out
+  local i out gas=${GAS:-900000}
   for i in 1 2 3 4 5; do
-    if out=$(cast send "$VAULT" "$@" --rpc-url "$RPC" --private-key "$PRIVATE_KEY" $TX --gas-limit 900000 2>&1); then
+    if out=$(cast send "$VAULT" "$@" --rpc-url "$RPC" --private-key "$PRIVATE_KEY" $TX --gas-limit "$gas" 2>&1); then
       sleep 4; return 0
     fi
     case "$out" in
-      *"Nonce too low"*|*"nonce too low"*) sleep 6 ;;
+      # All three mean the relay's view of the account disagrees with consensus.
+      # Nothing was charged; the cache resyncs within a few seconds.
+      *"Nonce too low"*|*"nonce too low"*|*WRONG_NONCE*) sleep 8 ;;
       *) echo "$out" >&2; return 1 ;;
     esac
   done
@@ -58,6 +72,19 @@ echo "==> strategy"
 send "configureStrategy(address,address,uint16,uint16,uint256,uint256)" \
      "$ORACLE" "$STAKE" 100 100 1400000000000000000 1150000000000000000
 
+# Concentrated-liquidity venue. Registered where the network has one: the
+# router has to be set first, because a concentrated venue is traded through it.
+ROUTER=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK'].get('swapRouter',{}).get('evm',''))")
+CLPAIR=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK'].get('concentratedPair',{}).get('evm',''))")
+CLFEE=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK'].get('concentratedPair',{}).get('feeTier',0))")
+if [ -n "$ROUTER" ] && [ -n "$CLPAIR" ]; then
+  echo "==> swap router"; GAS=2000000 send "setSwapRouter(address)" "$ROUTER"
+  echo "==> concentrated venue"
+  if send "addVenue(address,uint16,uint8)" "$CLPAIR" "$CLFEE" 1; then :; else
+    echo "    already registered, or rejected - continuing"
+  fi
+fi
+
 echo
 echo "guardian        $(cast call $VAULT 'guardian()(address)' --rpc-url $RPC)"
 echo "curator         $(cast call $VAULT 'curator()(address)' --rpc-url $RPC)"
@@ -67,3 +94,8 @@ echo "withdrawTimelock $(cast call $VAULT 'withdrawTimelock()(uint64)' --rpc-url
 echo "depositCap      $(cast call $VAULT 'depositCap()(uint256)' --rpc-url $RPC)"
 echo "maxSlippageBps  $(cast call $VAULT 'maxSlippageBps()(uint16)' --rpc-url $RPC)"
 echo "assetPrice      $(cast call $VAULT 'assetPriceInWhbar()(uint256)' --rpc-url $RPC)"
+echo "swapRouter      $(cast call $VAULT 'swapRouter()(address)' --rpc-url $RPC)"
+for i in 0 1 2 3; do
+  V=$(cast call $VAULT "venues(uint256)(address,uint16,bool,uint8)" $i --rpc-url $RPC 2>/dev/null) || break
+  echo "venue $i         $(echo $V | tr '\n' ' ')"
+done

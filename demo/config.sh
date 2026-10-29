@@ -7,7 +7,15 @@ export HBARX=0x0000000000000000000000000000000000220cED   # 0.0.2231533
 export EXPLORER=https://hashscan.io/testnet
 
 # Hedera needs legacy transactions; the relay rejects EIP-1559 fee fields.
-export TXFLAGS="--legacy --gas-price 1140000000000"
+# The gas price comes from the relay and is padded, because the network minimum
+# moves: a price under it is rejected with INSUFFICIENT_TX_FEE, which costs
+# nothing but still advances the relay's cached nonce, so the next send then
+# fails with WRONG_NONCE.
+GASP=$(cast gas-price --rpc-url "$RPC" 2>/dev/null || true)
+case "$GASP" in ''|*[!0-9]*) GASP=1300000000000 ;;
+  *) GASP=$(python3 -c "print(int($GASP * 12 // 10))") ;;
+esac
+export TXFLAGS="--legacy --gas-price $GASP"
 
 if [ -z "${PRIVATE_KEY:-}" ]; then
   echo "PRIVATE_KEY is not set."

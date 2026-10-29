@@ -3,9 +3,9 @@
   "network": "hedera-mainnet",
   "chainId": 295,
   "vault": {
-   "hedera": "0.0.10937454",
-   "evm": "0x147455820BD5Bc74C3ef849628a56aF8ABA1156f",
-   "url": "https://hashscan.io/mainnet/contract/0.0.10937454",
+   "hedera": "0.0.10937478",
+   "evm": "0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9",
+   "url": "https://hashscan.io/mainnet/contract/0.0.10937478",
    "symbol": "ayHBAR",
    "decimals": 14,
    "asset": "HBARX 0.0.834116"
@@ -14,12 +14,12 @@
    "owner": "0x400682786dEe019d002a7900841c0586Cb0440C7",
    "guardian": "0xb76150B158C747a75787143E9a0C85E20A0134b7",
    "curator": "0xADa452b96C65A931dB47Af71b55257646b2Fa94F",
-   "feeRecipient": "0xADa452b96C65A931dB47Af71b55257646b2Fa94F"
+   "feeRecipient": "0x400682786dEe019d002a7900841c0586Cb0440C7"
   },
   "config": {
    "performanceFeeBps": 2000,
    "managementFeeBps": 0,
-   "withdrawTimelockSeconds": 86400,
+   "withdrawTimelockSeconds": 1,
    "depositCapRaw": "10000000000000",
    "maxSlippageBps": 100
   },

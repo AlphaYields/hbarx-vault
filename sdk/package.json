@@ -12,7 +12,8 @@
     "request-withdraw": "tsx scripts/request-withdraw.ts",
     "cancel-request": "tsx scripts/cancel-request.ts",
     "claim": "tsx scripts/claim.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "keeper": "tsx scripts/keeper.ts"
   },
   "dependencies": {
     "ethers": "^6.17.0"

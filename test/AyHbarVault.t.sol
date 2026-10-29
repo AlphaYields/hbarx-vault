@@ -65,19 +65,22 @@ contract MockStaking {
     function getExchangeRate() external view returns (uint256){ return rateValue; }
     function stake() external payable {
         require(!broken, "stake down");
-        a.mint(msg.sender, (msg.value / 1e10) * 1e8 / rateValue);
+        a.mint(msg.sender, msg.value * 1e8 / rateValue);
     }
 }
 
 /// Minimal WHBAR wrapper: native in, token out, and back again.
+/// Native value on Hedera reaches a contract in tinybar - the same eight-decimal
+/// unit as WHBAR and the asset - so these mocks map it one to one, as the real
+/// wrapper does.
 contract MockWhbar {
     MockToken w;
     constructor(MockToken _w){w=_w;}
     receive() external payable {}
-    function deposit() external payable { w.mint(msg.sender, msg.value / 1e10); }
+    function deposit() external payable { w.mint(msg.sender, msg.value); }
     function withdraw(uint256 amt) external {
         w.burnFrom_(msg.sender, amt);
-        (bool ok,) = msg.sender.call{value: amt * 1e10}(""); require(ok, "send");
+        (bool ok,) = msg.sender.call{value: amt}(""); require(ok, "send");
     }
 }
 
@@ -107,6 +110,50 @@ contract MockPair {
         r1 = uint112(in1 > a1 ? in1 - a1 : 0);
         if (r0 == 0) r0 = 1; if (r1 == 0) r1 = 1;
     }
+}
+
+/// Concentrated-liquidity venue, reached through a router rather than by
+/// transferring into a pair.
+///
+/// A real concentrated pool has no reserves to read, which is exactly why the
+/// vault quotes it through the router and bounds the trade with a floor taken
+/// from the redemption rate instead of from the pool. This mock keeps that
+/// shape: one settable price, the fee tier applied in parts per million, and
+/// the minimum-out check the router itself performs.
+contract MockRouter {
+    struct ExactInputSingleParams {
+        address tokenIn; address tokenOut; uint24 fee; address recipient;
+        uint256 deadline; uint256 amountIn; uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    MockToken whbar; MockToken asset_;
+    uint256 public price = 1.43e8;        // WHBAR per whole asset unit, 1e8
+
+    constructor(MockToken w, MockToken a) { whbar = w; asset_ = a; }
+    function setPrice(uint256 p) external { price = p; }
+
+    function exactInputSingle(ExactInputSingleParams calldata q)
+        external payable returns (uint256 out)
+    {
+        require(q.deadline >= block.timestamp, "expired");
+        require(q.tokenIn != q.tokenOut, "same token");
+        // Pulled with an allowance, so the router approvals are exercised too.
+        require(MockToken(q.tokenIn).transferFrom(msg.sender, address(this), q.amountIn), "pull failed");
+
+        out = q.tokenIn == address(whbar)
+            ? q.amountIn * 1e8 / price            // WHBAR in, asset out
+            : q.amountIn * price / 1e8;           // asset in, WHBAR out
+        out = out * (1e6 - q.fee) / 1e6;          // the pool's fee tier
+
+        require(out >= q.amountOutMinimum, "too little received");
+        MockToken(q.tokenOut).mint(q.recipient, out);
+    }
+}
+
+/// A contract that is not a pair, used to prove a venue must prove itself.
+contract NotAPair {
+    function token0() external view returns (address) { return address(this); }
 }
 
 contract AyHbarVaultTest is Test {
@@ -511,7 +558,7 @@ contract AyHbarVaultTest is Test {
     function _withStakingAndTwoVenues() internal returns (MockStaking st, MockPair pair2) {
         st = new MockStaking(hbarx);
         MockWhbar wrap = new MockWhbar(whbar);
-        vm.deal(address(wrap), 1_000_000 ether);
+        vm.deal(address(wrap), 1_000_000 * ONE);
         AyHbarVault nv = new AyHbarVault(
             IERC20(address(hbarx)), address(pool), address(pair), address(whbar),
             address(wrap), address(aTok), address(dTok), address(oracle), address(st), feeRcv);
@@ -523,7 +570,7 @@ contract AyHbarVaultTest is Test {
         pair2 = new MockPair(address(whbar), address(hbarx), uint112(143_000*ONE), uint112(100_000*ONE));
         whbar.mint(address(pair2), 143_000*ONE);
         hbarx.mint(address(pair2), 100_000*ONE);
-        nv.addVenue(address(pair2), 997);
+        nv.addVenue(address(pair2), 997, 0);
         v = nv;
     }
 
@@ -634,9 +681,9 @@ contract AyHbarVaultTest is Test {
         _dep(alice, 400*ONE);
         v.setDepositCap(1000*ONE);
 
-        vm.deal(alice, 1000 ether);
+        vm.deal(alice, 1000 * ONE);
         vm.prank(alice);
-        v.depositHBAR{value: 350 ether}(alice, 0);      // 350 HBAR, headroom 600
+        v.depositHBAR{value: 350 * ONE}(alice, 0);      // 350 HBAR, headroom 600
         assertGt(v.balanceOf(alice), 0);
     }
 
@@ -644,16 +691,21 @@ contract AyHbarVaultTest is Test {
     /// the staking entry is unavailable.
     function test_depositRoutesToTheBetterVenueAndSurvivesStakingOutage() public {
         (MockStaking st,) = _withStakingAndTwoVenues();
-        vm.deal(alice, 1000 ether);
+        vm.deal(alice, 1000 * ONE);
 
+        // 10 HBAR at a rate of 1.43 is about 6.99 of the asset. A scaling slip
+        // anywhere in this path shows up here as a wildly wrong amount, which is
+        // what makes this assertion worth having.
         vm.prank(alice);
-        uint256 viaStaking = v.depositHBAR{value: 10 ether}(alice, 0);
-        assertGt(viaStaking, 0);
+        v.depositHBAR{value: 10 * ONE}(alice, 0);
+        assertApproxEqRel(v.totalAssets(), 10 * ONE * 1e8 / 1.43e8, 0.02e18,
+                          "wrong amount for 10 HBAR");
 
         st.setBroken(true);                             // staking entry goes down
         vm.prank(alice);
-        uint256 viaPool = v.depositHBAR{value: 10 ether}(alice, 0);
-        assertGt(viaPool, 0, "deposit failed when staking was unavailable");
+        v.depositHBAR{value: 10 * ONE}(alice, 0);
+        assertApproxEqRel(v.totalAssets(), 2 * (10 * ONE * 1e8 / 1.43e8), 0.02e18,
+                          "wrong amount via the pool");
     }
 
     /// A cross-venue trade must leave the vault with more than it started with.
@@ -674,6 +726,187 @@ contract AyHbarVaultTest is Test {
         uint256 profit = v.arbitrage(1, 0, 10*ONE, 0);
         assertGt(profit, 0);
         assertGt(v.totalAssets(), before, "arbitrage did not add to the vault");
+    }
+
+    // ══════════════════════════════════════ concentrated-liquidity venues
+
+    /// The mainnet shape: a constant-product pair as venue 0, a second pair as
+    /// venue 1, and a concentrated pool reached through a router as venue 2.
+    function _withRouterVenue() internal returns (MockStaking st, MockPair pair2, MockRouter router) {
+        (st, pair2) = _withStakingAndTwoVenues();
+        router = new MockRouter(whbar, hbarx);
+        v.setSwapRouter(address(router));
+        v.addVenue(address(0xC0CE), 1500, 1);        // fee tier 0.15%, concentrated
+    }
+
+    /// Setting the router approves it for both legs, which is what lets the
+    /// vault trade through it at all.
+    function test_routerIsApprovedForBothLegs() public {
+        (, , MockRouter router) = _withRouterVenue();
+        assertGt(hbarx.allowance(address(v), address(router)), 0, "asset leg not approved");
+        assertGt(whbar.allowance(address(v), address(router)), 0, "WHBAR leg not approved");
+    }
+
+    /// Registering a concentrated venue cannot disturb deposits. It has no
+    /// reserves to quote, so automatic routing never picks it, and a deposit
+    /// goes where it went before.
+    function test_concentratedVenueLeavesDepositRoutingAlone() public {
+        _withRouterVenue();
+        uint256 shares = _dep(alice, 100*ONE);
+        assertGt(shares, 0);
+        assertEq(v.totalAssets(), 100*ONE);
+
+        vm.deal(bob, 10*ONE);
+        vm.prank(bob);
+        v.depositHBAR{value: 10*ONE}(bob, 0);
+        assertGt(v.balanceOf(bob), 0, "HBAR deposit stopped working");
+    }
+
+    /// Sell the asset on the constant-product pair, buy it back on the
+    /// concentrated pool.
+    function test_arbitrageIntoTheConcentratedVenue() public {
+        (, , MockRouter router) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+
+        // The concentrated pool sells the asset cheaply: 1.30 WHBAR buys one,
+        // where the pair wants 1.43.
+        router.setPrice(1.30e8);
+        uint256 before = v.totalAssets();
+        vm.prank(curator);
+        uint256 profit = v.arbitrage(0, 2, 10*ONE, 0);
+        assertGt(profit, 0);
+        assertGt(v.totalAssets(), before, "arbitrage did not add to the vault");
+    }
+
+    /// Sell the asset on the concentrated pool, buy it back on the pair.
+    function test_arbitrageOutOfTheConcentratedVenue() public {
+        (, , MockRouter router) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+
+        // The concentrated pool pays 1.60 WHBAR for an asset the pair sells
+        // for 1.43.
+        router.setPrice(1.60e8);
+        uint256 before = v.totalAssets();
+        vm.prank(curator);
+        uint256 profit = v.arbitrage(2, 0, 10*ONE, 0);
+        assertGt(profit, 0);
+        assertGt(v.totalAssets(), before, "arbitrage did not add to the vault");
+    }
+
+    /// Sell the asset on the concentrated pool and mint it back at the
+    /// redemption rate. No pool is involved on the way back.
+    function test_arbitrageFromTheConcentratedVenueIntoStaking() public {
+        (, , MockRouter router) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+
+        router.setPrice(1.60e8);                 // above the 1.43 redemption rate
+        uint256 before = v.totalAssets();
+        vm.prank(curator);
+        uint256 profit = v.arbitrage(2, type(uint256).max, 10*ONE, 0);
+        assertGt(profit, 0);
+        assertGt(v.totalAssets(), before, "staking round trip did not add");
+    }
+
+    /// Sell on the pair and mint back through staking when the pair pays over
+    /// the redemption rate: the same route, the other way round.
+    function test_arbitrageFromThePairIntoStaking() public {
+        (, MockPair pair2, ) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+
+        // The second pair now pays well above redemption for the asset.
+        pair2.setReserves(uint112(200_000*ONE), uint112(100_000*ONE));
+        uint256 before = v.totalAssets();
+        vm.prank(curator);
+        uint256 profit = v.arbitrage(1, type(uint256).max, 10*ONE, 0);
+        assertGt(profit, 0);
+        assertGt(v.totalAssets(), before, "staking round trip did not add");
+    }
+
+    /// Priced in line, every direction loses to the fees and the vault refuses
+    /// all of them. Profitability is decided by the contract, not the caller.
+    function test_noDirectionSettlesWhenNoneProfits() public {
+        _withRouterVenue();
+        _dep(alice, 1000*ONE);
+
+        uint256 stake = type(uint256).max;
+        uint256[7] memory sells = [uint256(0), 0, 1, 1, 2, 2, 0];
+        uint256[7] memory buys  = [uint256(1), 2, 0, 2, 0, 1, stake];
+        for (uint256 k = 0; k < 7; k++) {
+            vm.prank(curator);
+            vm.expectRevert();
+            v.arbitrage(sells[k], buys[k], 10*ONE, 0);
+        }
+        assertEq(v.totalAssets(), 1000*ONE, "a losing round trip settled");
+    }
+
+    /// A profitable route still has to clear the caller's own floor.
+    function test_arbitrageRespectsTheCallersProfitFloor() public {
+        (, , MockRouter router) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+        router.setPrice(1.60e8);
+
+        vm.prank(curator);
+        vm.expectRevert(AyHbarVault.NoProfit.selector);
+        v.arbitrage(2, 0, 10*ONE, 100*ONE);      // asks for more than it makes
+    }
+
+    /// Only the curator or the owner may arbitrage.
+    function test_arbitrageIsNotPublic() public {
+        (, , MockRouter router) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+        router.setPrice(1.60e8);
+
+        vm.prank(bob);
+        vm.expectRevert(AyHbarVault.NotAuthorized.selector);
+        v.arbitrage(2, 0, 10*ONE, 0);
+    }
+
+    /// A venue has to prove what it is before it is trusted with a trade.
+    function test_venueRegistrationIsChecked() public {
+        _withStakingAndTwoVenues();
+        address notAPair = address(new NotAPair());
+
+        vm.expectRevert();                                  // not a pair at all
+        v.addVenue(notAPair, 997, 0);
+
+        vm.expectRevert(AyHbarVault.InvalidParam.selector);  // already registered
+        v.addVenue(address(pair), 997, 0);
+
+        vm.expectRevert(AyHbarVault.InvalidParam.selector);  // unknown kind
+        v.addVenue(address(0xBEEF), 997, 2);
+
+        vm.expectRevert(AyHbarVault.InvalidParam.selector);  // concentrated, no router
+        v.addVenue(address(0xBEEF), 1500, 1);
+
+        vm.prank(bob);                                       // and only the owner
+        vm.expectRevert();
+        v.addVenue(address(0xBEEF), 1500, 1);
+    }
+
+    /// A concentrated venue can be switched off like any other.
+    function test_concentratedVenueCanBeRetired() public {
+        (, , MockRouter router) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+        router.setPrice(1.60e8);
+
+        v.setVenueActive(2, false);
+        vm.prank(curator);
+        vm.expectRevert(AyHbarVault.InvalidParam.selector);
+        v.arbitrage(2, 0, 10*ONE, 0);
+    }
+
+    /// The router cannot be used to take value out: the floor it is handed
+    /// comes from the redemption rate, so a router returning less than the
+    /// trade is worth reverts the whole call.
+    function test_concentratedSwapIsFloored() public {
+        (, , MockRouter router) = _withRouterVenue();
+        _dep(alice, 1000*ONE);
+
+        router.setPrice(0.70e8);                 // pays half what the asset is worth
+        vm.prank(curator);
+        vm.expectRevert();
+        v.arbitrage(2, 0, 10*ONE, 0);
+        assertEq(v.totalAssets(), 1000*ONE);
     }
 
     /// Leverage must leave the position at or above the configured health floor.

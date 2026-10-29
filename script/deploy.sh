@@ -13,7 +13,17 @@ g(){ python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['$1']['evm'
 RPC=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['rpc'])")
 EXP=$(python3 -c "import json;print(json.load(open('$J'))['$NETWORK']['explorer'])")
 ME=$(cast wallet address --private-key "$PRIVATE_KEY")
-TX="--legacy --gas-price 1140000000000"
+# Gas price: read from the relay and padded, because the network minimum moves.
+# A price under the current minimum is rejected with INSUFFICIENT_TX_FEE, and
+# that rejection costs nothing but still advances the relay's cached nonce - so
+# the next send fails with WRONG_NONCE. Paying over the minimum avoids both.
+gas_price(){
+  local p
+  p=$(cast gas-price --rpc-url "$RPC" 2>/dev/null) || p=
+  case "$p" in ''|*[!0-9]*) echo 1300000000000; return ;; esac
+  python3 -c "print(int($p * 12 // 10))"
+}
+TX="--legacy --gas-price $(gas_price)"
 # Deployment gas scales with contract size, and the vault sits near Hedera's
 # 24 KB code limit. Override with DEPLOY_GAS if a change pushes it higher.
 DEPLOY_GAS=${DEPLOY_GAS:-9000000}

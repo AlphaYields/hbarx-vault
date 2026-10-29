@@ -2,8 +2,8 @@
 
 ## Live on Hedera mainnet
 
-**Vault `0.0.10937454`** — [HashScan](https://hashscan.io/mainnet/contract/0.0.10937454)
-`0x147455820BD5Bc74C3ef849628a56aF8ABA1156f`
+**Vault `0.0.10937478`** — [HashScan](https://hashscan.io/mainnet/contract/0.0.10937478)
+`0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9`
 
 | Setting | Value |
 |---|---|
@@ -11,12 +11,13 @@
 | Underlying asset | HBARX (`0.0.834116`) |
 | Performance fee | 20% (2000 bps), high-water mark |
 | Management fee | 0% |
-| Withdrawal timelock | 86,400 s (1 day) |
+| Withdrawal timelock | 1 s |
 | Deposit cap | 100,000 HBARX |
 | Slippage limit | 1% operating, 5% contract ceiling |
 | Owner | `0x400682786dEe019d002a7900841c0586Cb0440C7` |
 | Guardian | `0xb76150B158C747a75787143E9a0C85E20A0134b7` |
-| Curator and fee recipient | `0xADa452b96C65A931dB47Af71b55257646b2Fa94F` |
+| Curator | `0xADa452b96C65A931dB47Af71b55257646b2Fa94F` |
+| Fee recipient | `0x400682786dEe019d002a7900841c0586Cb0440C7` |
 | Linked library | `VaultMath` [`0.0.10937449`](https://hashscan.io/mainnet/contract/0.0.10937449) — `0x55FA8bA02c637B72FF9a9D3096a2730D6cc75a32` |
 
 The deployed runtime is byte-for-byte what this repository compiles, which
@@ -107,7 +108,8 @@ first if you paste shell comments into an interactive zsh.
 ```bash
 export RPC=https://testnet.hashio.io/api      # mainnet: https://mainnet.hashio.io/api
 export VAULT=0x1877f189aaF4A14ec3C7C0FF7e1045Cd0604df6e
-export TXFLAGS="--legacy --gas-price 1140000000000 --gas-limit 900000"
+export GASP=$(python3 -c "print(int($(cast gas-price --rpc-url $RPC) * 12 // 10))")
+export TXFLAGS="--legacy --gas-price $GASP --gas-limit 900000"
 send(){ cast send $VAULT "$@" --rpc-url $RPC --private-key $PRIVATE_KEY $TXFLAGS; }
 ```
 
@@ -118,7 +120,9 @@ send(){ cast send $VAULT "$@" --rpc-url $RPC --private-key $PRIVATE_KEY $TXFLAGS
 | Set fees and recipient | `send "setFees(uint16,uint16,address)" 2000 0 $RECIPIENT` |
 | Set both delegate roles | `send "setRoles(address,address)" $GUARDIAN $CURATOR` |
 | Set strategy references and bounds | `send "configureStrategy(address,address,uint16,uint16,uint256,uint256)" $ORACLE $STAKING 100 100 1400000000000000000 1150000000000000000` |
-| Register a liquidity venue | `send "addVenue(address,uint16)" $PAIR 997` |
+| Set the concentrated-liquidity router | `send "setSwapRouter(address)" $ROUTER` — raise the gas limit to 2,000,000 for this one |
+| Register a constant-product venue | `send "addVenue(address,uint16,uint8)" $PAIR 997 0` |
+| Register a concentrated venue | `send "addVenue(address,uint16,uint8)" $POOL 1500 1` |
 | Take a venue out of routing | `send "setVenueActive(uint256,bool)" 1 false` |
 | Set withdrawal timelock | `send "setWithdrawTimelock(uint64)" 86400` |
 | Unpause | `send "unpause()"` |
@@ -185,15 +189,33 @@ cast call $VAULT "withdrawableAt(address)(uint256,uint64)" $USER --rpc-url $RPC
    deployment on mainnet — the live price oracle (`0x2e78BedD7175dEC675949f50a2604bC835A47a03`),
    required before any leverage is taken, and Stader (`0.0.1412503`). Read both back with
    `oracle()` and `staking()`.
-5. **Register the conversion venues.** Deposits are routed automatically: the vault quotes
-   minting at the staking protocol's rate and buying on each registered pool, and takes the
-   better. The first venue is set at deployment from `addresses.json`; register any others
-   with `addVenue(pair, feeNum)`, where `feeNum` is the pool's fee numerator out of 1000 —
-   997 for a 0.30% pool. Read the current rate the vault prices against with:
+5. **Register the venues.** Deposits are routed automatically: the vault quotes minting at the
+   staking protocol's rate and buying on each registered constant-product pool, and takes the
+   better. The first venue is set at deployment from `addresses.json`.
+
+   Two kinds of venue are supported, and both take part in arbitrage in either direction:
+
+   | Kind | `kind` | `feeNum` | How the vault trades it |
+   |---|---|---|---|
+   | Constant-product pair | `0` | fee numerator out of 1000 — 997 is a 0.30% pool | swapped against directly, quoted from reserves |
+   | Concentrated liquidity | `1` | fee tier in hundredths of a bip — 1500 is 0.15% | swapped through the router set by `setSwapRouter` |
+
+   A constant-product pool is probed at registration and rejected unless it answers
+   `getReserves()` with the vault's WHBAR as one of its tokens. A concentrated pool cannot be
+   quoted from reserves, so it is never chosen by automatic deposit routing — it is reached by
+   `arbitrage`, where the floor comes from the redemption rate rather than from the pool. Set
+   the router before registering a concentrated venue:
+
+   ```bash
+   send "setSwapRouter(address)" $ROUTER
+   send "addVenue(address,uint16,uint8)" $POOL 1500 1
+   ```
+
+   Read the current rate the vault prices against, and the registered venues, with:
 
    ```bash
    cast call $VAULT "assetPriceInWhbar()(uint256)" --rpc-url $RPC
-   cast call $VAULT "venues(uint256)(address,uint16,bool)" 0 --rpc-url $RPC
+   cast call $VAULT "venues(uint256)(address,uint16,bool,uint8)" 0 --rpc-url $RPC
    ```
 
 6. **Verify roles** read back correctly before announcing the vault, and confirm the guardian
@@ -211,7 +233,7 @@ and set the limit close to the estimate. Typical costs at 114 tinybar/gas:
 | Operation | Gas | Cost |
 |---|---:|---:|
 | Deploy `VaultMath` | ~1,300,000 | ≈1.5 HBAR |
-| Deploy the vault | ~5,300,000 | ≈6.0 HBAR |
+| Deploy the vault | limit 9,000,000 | ≈6 HBAR |
 | `associate()` | 2,858,664 | ≈3.3 HBAR |
 | Deposit HBARX | 165,161 | ≈0.19 HBAR |
 | Deposit HBAR (wrap + swap) | 273,214 | ≈0.31 HBAR |
@@ -219,8 +241,33 @@ and set the limit close to the estimate. Typical costs at 114 tinybar/gas:
 | Request withdrawal | 124,446 | ≈0.14 HBAR |
 | Redeem | 168,737 | ≈0.19 HBAR |
 | `accrueFees()` | 111,166 | ≈0.13 HBAR |
+| `addVenue` | 69,714 | ≈0.08 HBAR |
+| `setSwapRouter` (two HTS approvals) | ~1,600,000 | ≈1.8 HBAR |
 
-Measured on the deployment above; a deploy needs its limit set near 5.6M and `associate()`
+Measured on the deployment above; a deploy needs its limit set near 9M and `associate()`
 near 3M, both of which the deploy script sets.
 
+An HTS approval costs about 783,000 on its own. `setSwapRouter` makes two — the router is
+approved for both the asset and WHBAR — so it needs a limit of 2,000,000 rather than the
+900,000 that covers every other call. Set 900,000 for `arbitrage`: both of its legs move HTS
+tokens, and the limit is only reserved, not spent.
+
 All transactions are legacy-type; the relay does not accept EIP-1559 fee fields.
+
+Read the gas price from the relay rather than hardcoding one. The network minimum moves, and a
+price below it is rejected with `INSUFFICIENT_TX_FEE` — which costs nothing, but still advances
+the relay's cached nonce, so the *next* send fails with `WRONG_NONCE` even though it is correct.
+Paying comfortably over the minimum avoids both:
+
+```bash
+cast gas-price --rpc-url $RPC
+```
+
+If a send does return `WRONG_NONCE`, the relay is ahead of consensus. It resyncs within a few
+seconds, so waiting and repeating is enough; to go immediately, pin the nonce consensus reports:
+
+```bash
+cast send ... --nonce $(curl -s \
+  "https://mainnet.mirrornode.hedera.com/api/v1/accounts/$ME" \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['ethereum_nonce'])")
+```

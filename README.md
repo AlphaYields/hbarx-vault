@@ -3,8 +3,8 @@
 An ERC-4626 vault for HBAR staking on **Hedera**. Deposit HBAR or HBARX, hold one share
 token, and the vault does the rest.
 
-**Live on Hedera mainnet: [`0.0.10937454`](https://hashscan.io/mainnet/contract/0.0.10937454)**
-— `0x147455820BD5Bc74C3ef849628a56aF8ABA1156f`
+**Live on Hedera mainnet: [`0.0.10937478`](https://hashscan.io/mainnet/contract/0.0.10937478)**
+— `0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9`
 
 ---
 
@@ -15,8 +15,13 @@ epoch. The vault holds HBARX and the share price follows it.
 
 Converting is not a single route. The vault quotes both minting at the staking protocol's
 redemption rate and buying on each registered liquidity pool, then takes whichever returns
-more. Where two venues price HBARX differently, the curator can sell on one and buy back on
-the other in a single transaction that must leave the vault holding more than it started with.
+more. Pools of both shapes are supported: constant-product pairs, which the vault swaps
+against directly, and concentrated-liquidity pools, which it trades through a router.
+
+Where any two of those price HBARX differently, the curator can sell on one and buy back on
+the other — pair to pair, pair to concentrated pool, concentrated pool to pair, or either one
+back to the staking protocol at its redemption rate. Every combination settles in a single
+transaction that must leave the vault holding more than it started with.
 
 A lending leg is built in and the curator enables it: HBARX is supplied as collateral, HBAR is
 borrowed against it and converted back, which scales the position. Collateral and debt are both
@@ -45,7 +50,7 @@ HBAR ───────┤                               ├──► HBARX �
 | Performance fee | 20%, charged only above a high-water mark |
 | Management fee | 0% |
 | Withdrawal timelock | 1 day |
-| Network | Hedera mainnet, `0.0.10937454` |
+| Network | Hedera mainnet, `0.0.10937478` |
 | Licence | MIT |
 
 ## Deposits and withdrawals
@@ -130,8 +135,9 @@ configured health factor. Below a second, lower level anyone may unwind it, so a
 depends on a single key being available.
 
 **Arbitrage can only add.** Both legs settle in one transaction and the vault must finish
-holding more of its asset than it started with, or the call reverts. There is no path by which
-it moves value out.
+holding more of its asset than it started with, or the call reverts. The contract decides
+profitability itself, on every route and in every direction, so an unprofitable trade cannot
+be submitted. There is no path by which it moves value out.
 
 **Loop iterations are capped** so a single transaction stays inside Hedera's child-transaction
 limit.
@@ -171,9 +177,10 @@ git submodule update --init --recursive
 forge test
 ```
 
-46 tests covering fees and the high-water mark, role permissions, the withdrawal queue, the
+58 tests covering fees and the high-water mark, role permissions, the withdrawal queue, the
 deposit cap, pausing, share-price integrity and value conservation, deposit routing between
-venues, the anchored swap floor, arbitrage, the health-factor bounds and withdrawals under
+venues, the anchored swap floor, arbitrage in every direction across both pool shapes and the
+staking protocol, venue registration, the health-factor bounds and withdrawals under
 leverage — including fuzz runs over deposit and redemption, fee bounds and cap enforcement.
 
 Against the live testnet deployment, `./script/validate-testnet.sh` walks every feature on
@@ -198,8 +205,8 @@ NETWORK=testnet ./script/configure.sh
 
 ## Status
 
-**Live on Hedera mainnet at [`0.0.10937454`](https://hashscan.io/mainnet/contract/0.0.10937454)**
-(`0x147455820BD5Bc74C3ef849628a56aF8ABA1156f`), holding HBARX with deposits and withdrawals
+**Live on Hedera mainnet at [`0.0.10937478`](https://hashscan.io/mainnet/contract/0.0.10937478)**
+(`0x226E4AeC419F92e819AEd5E8b38EfbcA56FF3Fe9`), holding HBARX with deposits and withdrawals
 open.
 
 Deposits in both assets, the withdrawal queue, a matured claim by both `redeem` and `withdraw`,

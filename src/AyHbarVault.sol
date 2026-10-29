@@ -101,6 +101,17 @@ interface IPair {
     function token0() external view returns (address);
 }
 
+/// Uniswap-V3-style router, as SaucerSwap V2 exposes it.
+interface ISwapRouter {
+    struct ExactInputSingleParams {
+        address tokenIn; address tokenOut; uint24 fee; address recipient;
+        uint256 deadline; uint256 amountIn; uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+    function exactInputSingle(ExactInputSingleParams calldata params)
+        external payable returns (uint256 amountOut);
+}
+
 interface IStaking {
     function stake() external payable;
     function getExchangeRate() external view returns (uint256);
@@ -164,6 +175,8 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
     uint256 public minHealthFactor = 1.4e18;
     /// Health factor below which anyone may unwind leverage.
     uint256 public unwindHealthFactor = 1.15e18;
+    /// Router used for concentrated-liquidity venues.
+    address public swapRouter;
 
     /// Pools the vault may route through. Several may be registered: deposits
     /// take whichever quotes best, and the difference between two of them is
@@ -184,9 +197,9 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
     event StrategyConfigured(address oracle, address staking, uint16 slippageBps,
                              uint16 deviationBps, uint256 minHealthFactor, uint256 unwindHealthFactor);
     event VenueSet(uint256 indexed index, address pair, bool active);
-    event RoutedDeposit(bool viaStaking, uint256 venueIndex, uint256 hbarIn, uint256 assetsOut);
+    event SwapRouterSet(address router);
+    event Routed(bool viaStaking, uint256 venueIndex, uint256 amountIn, uint256 assetsOut);
     event Arbitraged(uint256 sellVenue, uint256 buyVenue, uint256 amountIn, uint256 profit);
-    event WhbarRecovered(uint256 whbarIn, uint256 assetsOut);
 
 
     error NotAuthorized();
@@ -226,7 +239,7 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
         debtToken = IERC20(_debtToken);
         oracle = IPriceOracle(_oracle);
         staking = IStaking(_staking);
-        venues.push(VaultMath.Venue({pair: _pair, feeNum: 997, active: true}));
+        venues.push(VaultMath.Venue({pair: _pair, feeNum: 997, active: true, kind: 0}));
         feeRecipient = _feeRecipient == address(0) ? msg.sender : _feeRecipient;
         highWaterMark = _pricePerShare(0, 0);   // scale-consistent starting mark
         lastFeeAccrual = uint64(block.timestamp);
@@ -415,14 +428,16 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
 
         // Check the cap on what this deposit is worth before converting, so the
         // incoming amount is counted once rather than twice.
+        // msg.value arrives in tinybar, the same eight-decimal unit the asset
+        // and WHBAR use, so no scaling is needed anywhere in this path.
         uint256 headroom = maxDeposit(receiver);
         if (headroom != type(uint256).max) {
-            uint256 expectedAssets = _whbarToAsset(msg.value / 1e10, Math.Rounding.Floor);
+            uint256 expectedAssets = _whbarToAsset(msg.value, Math.Rounding.Floor);
             if (expectedAssets > headroom) revert CapExceeded();
         }
 
         uint256 before = IERC20(asset()).balanceOf(address(this));
-        _hbarToAsset(msg.value);
+        _wrapAndConvert(msg.value, maxSlippageBps);
         uint256 assets = IERC20(asset()).balanceOf(address(this)) - before;
         if (assets < minAssetsOut || assets == 0) revert InvalidParam();
         if (assets > maxDeposit(receiver)) revert CapExceeded();
@@ -438,38 +453,45 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
         emit DepositedHBAR(msg.sender, receiver, msg.value, assets, shares);
     }
 
-    /// Convert incoming HBAR to the vault's asset by whichever route pays more.
+    /// Convert WHBAR into the vault's asset by whichever route pays more.
     ///
     /// Staking mints at the protocol rate with no fee; a pool charges its fee
     /// and moves against the trade, but can still win when it trades at a
-    /// discount. Both are quoted and the better one is taken. If staking is the
-    /// better quote but the call reverts — which it does while the staking
-    /// entry is unavailable — the deposit falls through to the pool rather than
-    /// failing.
-    function _hbarToAsset(uint256 hbarAmount) internal {
-        uint256 tinybar = hbarAmount / 1e10;
+    /// discount. Both are quoted and the better one taken. If staking is the
+    /// better quote but the call reverts — as it does while the staking entry
+    /// is unavailable — the conversion falls through to a pool rather than
+    /// failing. Callers holding native HBAR wrap it first, so there is one
+    /// path here rather than two.
+    function _toAsset(uint256 amount, uint16 slippageBps) internal returns (uint256 got) {
         uint256 rate = _stakingRate();
-        uint256 stakingOut = rate > 0 ? tinybar.mulDiv(1e8, rate, Math.Rounding.Floor) : 0;
-        (uint256 venueIndex, uint256 venueOut) = bestVenue(address(whbar), tinybar);
+        uint256 stakingOut = rate > 0 ? amount.mulDiv(1e8, rate, Math.Rounding.Floor) : 0;
+        (uint256 venueIndex, uint256 venueOut) = bestVenue(address(whbar), amount);
+        uint256 aBefore = IERC20(asset()).balanceOf(address(this));
 
         if (stakingOut > 0 && stakingOut >= venueOut) {
-            uint256 aBefore = IERC20(asset()).balanceOf(address(this));
-            try staking.stake{value: hbarAmount}() {
-                emit RoutedDeposit(true, type(uint256).max, hbarAmount,
-                                   IERC20(asset()).balanceOf(address(this)) - aBefore);
-                return;
+            uint256 hBefore = address(this).balance;
+            whbarWrapper.withdraw(amount);
+            uint256 native = address(this).balance - hBefore;
+            try staking.stake{value: native}() {
+                got = IERC20(asset()).balanceOf(address(this)) - aBefore;
+                emit Routed(true, type(uint256).max, amount, got);
+                return got;
             } catch {
-                // staking unavailable — fall through to the pool
+                whbarWrapper.deposit{value: native}();   // re-wrap and use a pool
             }
         }
         if (venueOut == 0) revert InvalidParam();
+        got = _swapAt(venueIndex, address(whbar), amount, slippageBps);
+        emit Routed(false, venueIndex, amount, got);
+    }
 
+    /// Wrap native HBAR and hand it to the router above.
+    function _wrapAndConvert(uint256 hbarAmount, uint16 slippageBps) internal returns (uint256) {
         uint256 wBefore = whbar.balanceOf(address(this));
         whbarWrapper.deposit{value: hbarAmount}();
         uint256 wGot = whbar.balanceOf(address(this)) - wBefore;
         if (wGot == 0) revert InvalidParam();
-        uint256 got = _swapAt(venueIndex, address(whbar), wGot, maxSlippageBps);
-        emit RoutedDeposit(false, venueIndex, hbarAmount, got);
+        return _toAsset(wGot, slippageBps);
     }
 
     // ══════════════════════════════════════════════════════ withdrawal queue
@@ -604,44 +626,13 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
             uint256 got = whbar.balanceOf(address(this)) - wBefore;
             if (got == 0) break;
             borrowed += got;
-            _whbarToAssetBestRoute(got, slippageBps);
+            _toAsset(got, slippageBps);
         }
         uint256 hf = healthFactor();
         if (hf < minHealthFactor) revert UnhealthyPosition();
         emit Levered(loops, supplied, borrowed);
     }
 
-    /// Turn WHBAR into the asset by the better of staking and the pools.
-    ///
-    /// Staking takes native HBAR, so the WHBAR is unwrapped first. When the
-    /// staking entry is unavailable the call falls through to the best pool.
-    function _whbarToAssetBestRoute(uint256 amount, uint16 slippageBps) internal returns (uint256) {
-        uint256 rate = _stakingRate();
-        uint256 stakingOut = rate > 0 ? amount.mulDiv(1e8, rate, Math.Rounding.Floor) : 0;
-        (uint256 venueIndex, uint256 venueOut) = bestVenue(address(whbar), amount);
-
-        if (stakingOut > 0 && stakingOut >= venueOut) {
-            uint256 aBefore = IERC20(asset()).balanceOf(address(this));
-            uint256 hBefore = address(this).balance;
-            whbarWrapper.withdraw(amount);
-            uint256 native = address(this).balance - hBefore;
-            try staking.stake{value: native}() {
-                return IERC20(asset()).balanceOf(address(this)) - aBefore;
-            } catch {
-                whbarWrapper.deposit{value: native}();   // staking unavailable, use a pool
-            }
-        }
-        return _swapAt(venueIndex, address(whbar), amount, slippageBps);
-    }
-
-    /// Unwind leverage. Reads balances only, so it keeps working even when
-    /// totalAssets() cannot price itself. Guardian may call this in an emergency.
-    /// Unwind leverage.
-    ///
-    /// The guardian and the owner may call this at any time. Anyone may call it
-    /// once the health factor has fallen below `unwindHealthFactor`, so a
-    /// position is never dependent on one key being available. It cannot be
-    /// used to churn a healthy position.
     function deleverage(uint8 loops, uint256 withdrawPerLoop, uint16 slippageBps)
         external nonReentrant
     {
@@ -680,7 +671,8 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
                                    .mulDiv(BPS + slippageBps, BPS, Math.Rounding.Ceil);
                 if (sell > have) sell = have;
                 if (sell > 0) {
-                    (uint256 v, ) = bestVenue(asset(), sell);
+                    (uint256 v, uint256 q) = bestVenue(asset(), sell);
+                    if (q == 0) revert InvalidParam();   // no quotable venue
                     _swapAt(v, asset(), sell, slippageBps);
                 }
                 holding = whbar.balanceOf(address(this));
@@ -695,14 +687,13 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
 
     /// Convert WHBAR left in the vault back into the asset.
     ///
-    /// Permissionless and bounded by the same slippage floor as every other
-    /// swap: it can only improve the vault's position, never move value out.
-    function recoverWhbar() external nonReentrant returns (uint256 out) {
+    /// Permissionless, routed like any other conversion, and bounded by the
+    /// same slippage floor as every other swap: it can only improve the
+    /// vault's position, never move value out.
+    function recoverWhbar() external nonReentrant returns (uint256) {
         uint256 amount = whbar.balanceOf(address(this));
         if (amount == 0 || debtToken.balanceOf(address(this)) > 0) revert InvalidParam();
-        (uint256 i, ) = bestVenue(address(whbar), amount);
-        out = _swapAt(i, address(whbar), amount, maxSlippageBps);
-        emit WhbarRecovered(amount, out);
+        return _toAsset(amount, maxSlippageBps);
     }
 
     // ════════════════════════════════════════════════════════════ arbitrage
@@ -764,19 +755,36 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
             : _assetToWhbar(amtIn, Math.Rounding.Floor);
         uint256 floor_ = fair.mulDiv(BPS - slippageBps, BPS, Math.Rounding.Floor);
 
-        uint256 expected = VaultMath.quote(venues[i], address(whbar), inIsWhbar, amtIn);
-        if (expected == 0 || expected < floor_) revert InvalidParam();
-
-        IPair p = IPair(venues[i].pair);
-        IERC20(tokenIn).safeTransfer(address(p), amtIn);
-        bool t0IsWhbar = p.token0() == address(whbar);
-        (uint256 a0, uint256 a1) = inIsWhbar
-            ? (t0IsWhbar ? (uint256(0), expected) : (expected, uint256(0)))
-            : (t0IsWhbar ? (expected, uint256(0)) : (uint256(0), expected));
-
         IERC20 outTok = inIsWhbar ? IERC20(asset()) : whbar;
         uint256 before = outTok.balanceOf(address(this));
-        p.swap(a0, a1, address(this), "");
+
+        if (venues[i].kind == 1) {
+            // Concentrated liquidity: the router prices the swap and enforces
+            // the floor. No quote is needed in advance because the floor comes
+            // from the redemption rate rather than from the pool.
+            ISwapRouter(swapRouter).exactInputSingle(ISwapRouter.ExactInputSingleParams({
+                tokenIn: tokenIn,
+                tokenOut: address(outTok),
+                fee: uint24(venues[i].feeNum),
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: amtIn,
+                amountOutMinimum: floor_,
+                sqrtPriceLimitX96: 0
+            }));
+        } else {
+            uint256 expected = VaultMath.quote(venues[i], address(whbar), inIsWhbar, amtIn);
+            if (expected == 0 || expected < floor_) revert InvalidParam();
+
+            IPair p = IPair(venues[i].pair);
+            IERC20(tokenIn).safeTransfer(address(p), amtIn);
+            bool t0IsWhbar = p.token0() == address(whbar);
+            (uint256 a0, uint256 a1) = inIsWhbar
+                ? (t0IsWhbar ? (uint256(0), expected) : (expected, uint256(0)))
+                : (t0IsWhbar ? (expected, uint256(0)) : (uint256(0), expected));
+            p.swap(a0, a1, address(this), "");
+        }
+
         out = outTok.balanceOf(address(this)) - before;
         if (out < floor_) revert InvalidParam();
     }
@@ -831,16 +839,34 @@ contract AyHbarVault is ERC4626, Ownable2Step, ReentrancyGuard, Pausable {
         emit StrategyConfigured(oracle_, staking_, slippageBps, deviationBps, minHF, unwindHF);
     }
 
-    /// Register a pool the vault may route through. `feeNum` is the venue's
-    /// fee numerator out of 1000 — 997 is a 0.30% pool, 9985 is not accepted.
-    function addVenue(address pair_, uint16 feeNum) external onlyOwner {
-        if (pair_ == address(0) || venues.length >= MAX_VENUES) revert InvalidParam();
-        if (feeNum < 950 || feeNum > 1000) revert InvalidParam();
+    /// Register a pool the vault may route through.
+    ///
+    /// `kind` 0 is a constant-product pair: `feeNum` is its fee numerator out
+    /// of 1000, and the pool is probed to confirm it answers `getReserves`, so
+    /// a pool of the wrong shape is rejected here rather than breaking a
+    /// deposit later. `kind` 1 is a concentrated-liquidity pool reached through
+    /// the router, and `feeNum` carries its fee tier in hundredths of a bip.
+    function addVenue(address pair_, uint16 feeNum, uint8 kind) external onlyOwner {
+        if (pair_ == address(0) || venues.length >= MAX_VENUES || kind > 1) revert InvalidParam();
+        if (kind == 0 && (feeNum < 950 || feeNum > 1000)) revert InvalidParam();
+        if (kind == 1 && (feeNum == 0 || swapRouter == address(0))) revert InvalidParam();
         for (uint256 i = 0; i < venues.length; i++) {
             if (venues[i].pair == pair_) revert InvalidParam();
         }
-        venues.push(VaultMath.Venue({pair: pair_, feeNum: feeNum, active: true}));
+        if (kind == 0) VaultMath.reserves(pair_, address(whbar));   // must answer
+        venues.push(VaultMath.Venue({pair: pair_, feeNum: feeNum, active: true, kind: kind}));
         emit VenueSet(venues.length - 1, pair_, true);
+    }
+
+    /// Set the router concentrated-liquidity venues trade through, and approve
+    /// it for both tokens. Approvals are bounded, as HTS requires.
+    function setSwapRouter(address router) external onlyOwner {
+        swapRouter = router;
+        if (router != address(0)) {
+            IERC20(asset()).forceApprove(router, HTS_MAX);
+            whbar.forceApprove(router, HTS_MAX);
+        }
+        emit SwapRouterSet(router);
     }
 
     /// Take a venue out of the routing set, or put it back.
